@@ -67,6 +67,11 @@ export function validateDraftRequest(body: unknown): Spot {
   const n = boundedInt(spot.n, 'spot.n', 0, MAX_COUNT)
   const recent = boundedInt(spot.recent, 'spot.recent', 0, MAX_COUNT)
   if (recent > n) throw new InputError('spot.recent cannot be larger than spot.n')
+  // Each category counts reports, so no single one can exceed the total. Their sum can, because
+  // one report may mention several categories.
+  for (const kind of ITEM_KINDS) {
+    if (items[kind] > n) throw new InputError(`spot.items.${kind} cannot be larger than spot.n`)
+  }
   return {
     plus_code: spot.plus_code,
     district: spot.district,

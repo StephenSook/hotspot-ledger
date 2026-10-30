@@ -67,6 +67,8 @@ describe('validateDraftRequest', () => {
     expect(validateDraftRequest({ spot: SPOT })).toEqual(SPOT)
     expect(validateDraftRequest({ spot: { ...SPOT, district: null } }).district).toBeNull()
     expect(validateDraftRequest({ spot: { ...SPOT, recent: 0 } }).recent).toBe(0)
+    // Categories may sum past the total (one report can mention several), as long as none exceeds it.
+    expect(validateDraftRequest({ spot: { ...SPOT, n: 3, recent: 1, items: { tires: 3, furniture: 3, appliances: 3, bags: 3, construction: 3 } } }).n).toBe(3)
     for (const treatment of TREATMENTS) expect(validateDraftRequest({ spot: { ...SPOT, treatment } }).treatment).toBe(treatment)
     for (const owner_label of ['city', 'cobb', 'gdot', 'private', 'confirm']) {
       expect(validateDraftRequest({ spot: { ...SPOT, owner_label } }).owner_label).toBe(owner_label)
@@ -104,6 +106,8 @@ describe('validateDraftRequest', () => {
     ['the old date field beside the count', { spot: { ...SPOT, last: '2026-10' } }, 'spot has unknown key "last"'],
     ['negative recent count', { spot: { ...SPOT, recent: -1 } }, 'spot.recent'],
     ['recent larger than the total', { spot: { ...SPOT, recent: 58 } }, 'cannot be larger than spot.n'],
+    // Codex round 8 reproduction: "reported 3 times ... 4 reports mention tires".
+    ['an item count larger than the total', { spot: { ...SPOT, n: 3, recent: 1, items: { tires: 4, furniture: 0, appliances: 0, bags: 0, construction: 0 } } }, 'spot.items.tires cannot be larger than spot.n'],
   ]
   it.each(bad)('rejects %s', (_name, body, needle) => {
     expect(() => validateDraftRequest(body)).toThrow(needle)
