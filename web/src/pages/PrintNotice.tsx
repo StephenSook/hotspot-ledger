@@ -5,14 +5,16 @@ import { issuedLabel, useVerifiedNotice, verifyUrl } from '../lib/notice'
 /** A printable letter-size notice. Only a token that verifies can be printed. */
 export default function PrintNotice({ token }: { token: string }) {
   const state = useVerifiedNotice(token)
-  const [qr, setQr] = useState<string | null>(null)
+  // Keyed by URL, so a new print link never shows the previous notice's QR code while its own renders.
+  const [made, setMade] = useState<{ url: string; src: string | null } | null>(null)
   const url = verifyUrl(token)
+  const qr = made && made.url === url ? made.src : null
 
   useEffect(() => {
     let live = true
     QRCode.toString(url, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' })
-      .then((svg) => { if (live) setQr(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`) })
-      .catch(() => { if (live) setQr(null) })
+      .then((svg) => { if (live) setMade({ url, src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` }) })
+      .catch(() => { if (live) setMade({ url, src: null }) })
     return () => { live = false }
   }, [url])
 
