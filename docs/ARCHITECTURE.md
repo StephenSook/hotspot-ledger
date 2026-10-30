@@ -153,3 +153,11 @@ workflow runs in the repository. Raw data stays on the maintainer's machine in t
 - Resident photos on SeeClickFix are never republished; field photos in the demo are our own.
 - The camera page needs footage; the dumping benchmark (MIVIA-IWDD-500) has no published license
   yet, so its clips are not shown publicly.
+
+## Not built yet (named in the plan, on purpose not claimed)
+
+- A trend test for spots that are getting worse (Getis-Ord Gi* with a Mann-Kendall trend). The ledger
+  shows counts and the time scrubber; it does not claim statistical significance per spot.
+- Grouping residents' public comments from council minutes by theme with Jigsaw's Sensemaking tools.
+- A QR reporting page in English and Spanish for each city sign, and spoken reports.
+- A public page where a resident can verify that a printed notice is real.
