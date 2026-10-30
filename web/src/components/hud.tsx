@@ -56,7 +56,7 @@ function useMabletonTime() {
   return { time, zone, night: hour < 7 || hour >= 19 }
 }
 
-export function BottomBar({ route }: { route: Route }) {
+export function BottomBar({ route }: { route: Route | null }) {
   const { time, zone, night } = useMabletonTime()
   return (
     <footer className="bar">

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { readFileSync } from 'node:fs'
 
 const PAGES = [
   { hash: '#/ledger', heading: /keeps coming back/i },
@@ -64,4 +65,34 @@ test('published data carries no identifying fields', async ({ request }) => {
       expect(text, `${bad} in ${name}`).not.toContain(bad)
     }
   }
+})
+
+const SAMPLE = readFileSync(new URL('./sample-notice-token.txt', import.meta.url), 'utf8').trim()
+
+test('a signed notice link verifies in the browser and passes axe', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto(`/#/v/${SAMPLE}`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('This notice is genuine.', { timeout: 30_000 })
+  await expect(page.getByText(/Plus Code 865QRCC9\+32/).first()).toBeVisible()
+  await expect(page.getByRole('link', { name: /Report dumping/ })).toHaveAttribute('href', /mableton\.gov/)
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([])
+  expect(errors).toEqual([])
+})
+
+test('an edited notice link is refused', async ({ page }) => {
+  const [body, sig] = SAMPLE.split('.')
+  const flipped = body.slice(0, 20) + (body[20] === 'A' ? 'B' : 'A') + body.slice(21)
+  await page.goto(`/#/v/${flipped}.${sig}`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Not a verified notice.', { timeout: 30_000 })
+})
+
+test('the print view carries a QR code that opens the verify link', async ({ page }) => {
+  await page.goto(`/#/print/${SAMPLE}`)
+  const qr = page.getByRole('img', { name: /QR code/ })
+  await expect(qr).toBeVisible({ timeout: 30_000 })
+  expect(await qr.getAttribute('src')).toMatch(/^data:image\/svg\+xml/)
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([])
 })

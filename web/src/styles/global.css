@@ -199,3 +199,22 @@ table.t td.num { text-align: right; font-family: var(--font-mono); color: var(--
   .bar a { font-size: 12px; }
   .bar .clock { display: none; }
 }
+
+/* ---------- printable notice: a white letter-size sheet on screen and on paper ---------- */
+.sheet {
+  max-width: 816px; margin: 0 auto; background: #fff; color: #111; padding: 48px 56px;
+  display: flex; flex-direction: column; gap: 18px; font-family: var(--font-sans);
+}
+.sheet-head { display: flex; justify-content: space-between; gap: 12px; font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: var(--track); border-bottom: 2px solid #111; padding-bottom: 8px; }
+.sheet-title { color: #111; font-size: 40px; line-height: 1.05; letter-spacing: -0.03em; display: flex; flex-direction: column; gap: 4px; }
+.sheet-title span { font-size: 26px; color: #444; }
+.sheet-text { font-size: 17px; line-height: 1.5; }
+.sheet-foot { display: grid; grid-template-columns: 150px 1fr; gap: 20px; align-items: center; border-top: 2px solid #111; padding-top: 16px; font-size: 15px; }
+.sheet-small { font-size: 12px; color: #444; }
+@media print {
+  @page { size: letter; margin: 0.5in; }
+  html, body, #root { height: auto; background: #fff; overflow: visible; }
+  .bar, .grain, .no-print { display: none !important; }
+  .app, .page-scroll { position: static; inset: auto; overflow: visible; padding: 0; }
+  .sheet { max-width: none; padding: 0; }
+}

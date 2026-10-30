@@ -1,12 +1,14 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { BottomBar } from './components/hud'
-import { ROUTES, type Route } from './lib/routes'
+import { ROUTES, noticeFromHash, type Route } from './lib/routes'
 import { loadLedger } from './data/load'
 import type { LedgerData } from './data/types'
 import Ledger from './pages/Ledger'
 import WhereNext from './pages/WhereNext'
 import Plan from './pages/Plan'
 import Evidence from './pages/Evidence'
+import VerifyNotice from './pages/VerifyNotice'
+import PrintNotice from './pages/PrintNotice'
 import { useStored } from './lib/store'
 
 const CameraLab = lazy(() => import('./camera/CameraLab'))
@@ -22,25 +24,41 @@ const TITLES: Record<Route, string> = {
 
 export default function App() {
   const [route, setRoute] = useState<Route>(routeFromHash)
+  const [notice, setNotice] = useState(() => noticeFromHash(window.location.hash))
   const [data, setData] = useState<LedgerData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pinned, setPinned] = useStored<string[]>('pinned', [])
 
   useEffect(() => {
-    const onHash = () => setRoute(routeFromHash())
+    const onHash = () => { setRoute(routeFromHash()); setNotice(noticeFromHash(window.location.hash)) }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
   useEffect(() => {
-    document.title = `${TITLES[route]} // Hotspot Ledger`
-  }, [route])
+    document.title = notice ? `${notice.view === 'print' ? 'Print notice' : 'Check a notice'} // Hotspot Ledger` : `${TITLES[route]} // Hotspot Ledger`
+  }, [route, notice])
 
+  // A resident opening a notice link on a phone does not need the ledger data, so it loads only
+  // once a ledger page is shown.
+  const wantData = notice === null
   useEffect(() => {
+    if (!wantData) return
     loadLedger().then(setData).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-  }, [])
+  }, [wantData])
 
   const addToPlan = (id: string) => setPinned((p) => (p.includes(id) ? p : [...p, id]))
+
+  if (notice) {
+    return (
+      <>
+        <main className="app" id="main">
+          {notice.view === 'verify' ? <VerifyNotice token={notice.token} /> : <PrintNotice token={notice.token} />}
+        </main>
+        <BottomBar route={null} />
+      </>
+    )
+  }
 
   return (
     <>

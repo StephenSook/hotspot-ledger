@@ -3,7 +3,7 @@ import LedgerMap from '../components/LedgerMap'
 import FieldPhoto from '../components/FieldPhoto'
 import { Frame } from '../components/hud'
 import type { Cell, LngLat, LedgerData } from '../data/types'
-import { draftNotice, explain, getStaffToken, orderStops, setStaffToken, type DraftResult } from '../lib/api'
+import { draftNotice, explain, getStaffToken, orderStops, setStaffToken, signNotice, type DraftResult, type SignResult } from '../lib/api'
 import { int } from '../lib/format'
 import { STAR, TREATMENT_LABEL, earliestAmnesty, isoWeek, propose, starReimbursable, weeklyPlan, type Proposal } from '../lib/plan'
 import { useStored } from '../lib/store'
@@ -28,6 +28,7 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
   const [route, setRoute] = useState<{ order: string[]; km: number } | null>(null)
   const [routeMsg, setRouteMsg] = useState('')
   const [drafts, setDrafts] = useState<Record<string, DraftResult | string>>({})
+  const [signed, setSigned] = useState<Record<string, SignResult | string>>({})
   const [selected, setSelected] = useState<string | null>(null)
   const [staffSet, setStaffSet] = useState(() => getStaffToken() !== '')
   const [staffInput, setStaffInput] = useState('')
@@ -55,16 +56,26 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
     if (r.ok) { setRoute({ order: r.data.order, km: r.data.distance_km }); setRouteMsg('') } else { setRoute(null); setRouteMsg(explain(r.error, r.status)) }
   }
 
-  async function draft(p: Proposal) {
+  // Codes only: the server allow-lists every field, and free text never reaches the model.
+  const spotOf = (p: Proposal) => {
     const c = byId.get(p.cellId)!
-    setDrafts((d) => ({ ...d, [p.cellId]: 'Drafting' }))
-    const owner = owners[p.cellId]
-    // Codes only: the server allow-lists every field, and free text never reaches the model.
-    const r = await draftNotice({
+    return {
       plus_code: c.plus_code, district: c.district, items: itemsOf(c), n: c.n, recent: recentOf(c),
-      treatment: p.treatment, owner_label: owner || c.owner_hint.owner,
-    })
+      treatment: p.treatment, owner_label: owners[p.cellId] || c.owner_hint.owner,
+    }
+  }
+
+  async function draft(p: Proposal) {
+    setDrafts((d) => ({ ...d, [p.cellId]: 'Drafting' }))
+    setSigned((s) => { const { [p.cellId]: _drop, ...rest } = s; return rest })
+    const r = await draftNotice(spotOf(p))
     setDrafts((d) => ({ ...d, [p.cellId]: r.ok ? r.data : explain(r.error, r.status) }))
+  }
+
+  async function sign(p: Proposal, d: DraftResult) {
+    setSigned((s) => ({ ...s, [p.cellId]: 'Signing' }))
+    const r = await signNotice(spotOf(p), d.sentences)
+    setSigned((s) => ({ ...s, [p.cellId]: r.ok ? r.data : explain(r.error, r.status) }))
   }
 
   function exportWeek() {
@@ -163,6 +174,7 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
               const d = decisions[p.cellId]
               const owner = owners[p.cellId] ?? ''
               const draftState = drafts[p.cellId]
+              const signState = signed[p.cellId]
               return (
                 <li key={p.cellId} style={{ padding: '8px 0' }} aria-current={selected === p.cellId}>
                   <div className="between">
@@ -193,6 +205,20 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
                       <div><span className="lbl">Español (borrador)</span><p style={{ fontSize: 12, whiteSpace: 'pre-wrap' }} lang="es">{draftState.es}</p></div>
                     </div>
                   )}
+                  {draftState && typeof draftState === 'object' && (
+                    <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
+                      {!(signState && typeof signState === 'object') && (
+                        <button className="btn" onClick={() => sign(p, draftState)} disabled={signState === 'Signing'}>Approve text and sign</button>
+                      )}
+                      {signState && typeof signState === 'object' && (
+                        <>
+                          <a className="btn solid" href={`#/print/${signState.token}`} target="_blank" rel="noopener">Print signed notice</a>
+                          <a className="btn" href={`#/v/${signState.token}`} target="_blank" rel="noopener">Check link</a>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {typeof signState === 'string' && signState !== 'Signing' && <p className="note" role="status">{signState}</p>}
                 </li>
               )
             })}
