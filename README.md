@@ -59,7 +59,7 @@ Staff features need server environment variables: `STAFF_TOKEN`, a shared secret
 - Field photos are face-blurred on the device before they leave it.
 - Gemini is used only behind staff actions, because free-tier terms bar services likely to be used by people under 18.
 - Nothing is approved until a person confirms who owns the ground.
-- A printed notice carries a QR code. Scanning it checks an Ed25519 signature in the resident's own browser against the public key in `api/_lib/notice.ts`, then rebuilds the text from the signed data, so an edited notice fails. The private key exists only in the server environment.
+- A printed notice carries a QR code. Scanning it checks an Ed25519 signature in the resident's own browser against the public key in `api/_lib/notice.ts` and rebuilds the signed text, so an edited link fails. A QR code can be copied onto other paper, so the page shows the signed text and place for the reader to compare. The private key exists only in the server environment.
 
 ## Data and credits
 

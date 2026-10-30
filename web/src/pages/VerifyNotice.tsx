@@ -64,7 +64,7 @@ export default function VerifyNotice({ token }: { token: string }) {
           <summary>How this check works</summary>
           <p style={{ marginTop: 6, textTransform: 'none' }}>
             Staff sign each notice with a private key that stays on the server. This page checks the signature in your
-            browser with the public key below and rebuilds the text from the signed data, so an edited notice fails.
+            browser with the public key below and rebuilds the text from the signed data, so an edited link fails. It cannot see the paper, so compare the two yourself.
             Nothing you do here is sent anywhere.
           </p>
           <p className="mono" style={{ marginTop: 6, wordBreak: 'break-all', textTransform: 'none' }}>Ed25519 public key: {NOTICE_PUBLIC_KEY}</p>

@@ -68,7 +68,7 @@ export default function Evidence({ data }: { data: LedgerData }) {
               <li>Field photos are face-blurred on the device before they leave it.</li>
               <li>Gemini runs only behind staff actions on free-tier terms, which bar services likely used by people under 18.</li>
               <li>Notices and plans are drafts until a person approves them, and nothing is approved until the owner of the ground is confirmed.</li>
-              <li>A printed notice carries a QR code. Scanning it checks an Ed25519 signature in the browser, so an edited notice fails. Public key: <span className="mono" style={{ wordBreak: 'break-all' }}>{NOTICE_PUBLIC_KEY}</span></li>
+              <li>A printed notice carries a QR code. Scanning it checks an Ed25519 signature in the browser, so an edited link fails, and shows the signed text and place to compare with the paper. Public key: <span className="mono" style={{ wordBreak: 'break-all' }}>{NOTICE_PUBLIC_KEY}</span></li>
             </ul>
           </Frame>
           <Frame className="stack" label="Sources">

@@ -87,14 +87,16 @@ Answer: `{"items": ["tires", "bags"], "tire_count_estimate": 6, "is_dumping_like
 Signs an approved notice so the printed copy carries a QR code anyone can check.
 
 ```json
-{"spot": {"plus_code": "865QRCC9+32", "district": "5", "items": {"tires": 11, "furniture": 9, "appliances": 3, "bags": 14, "construction": 1}, "n": 57, "recent": 23, "treatment": "camera", "owner_label": "confirm"}, "sentences": ["where", "total", "bags", "action", "how_to_report"]}
+{"spot": {"plus_code": "865QRCC9+32", "district": "5", "items": {"tires": 11, "furniture": 9, "appliances": 3, "bags": 14, "construction": 1}, "n": 57, "recent": 23, "treatment": "camera", "owner_label": "confirm"}, "sentences": ["where", "total", "bags", "action", "how_to_report"], "digest": "<wordingDigest of the reviewed EN and ES text>"}
 ```
 
 Answer: `{"token": "<payload>.<signature>", "path": "/#/v/<token>", "en": "...", "es": "...", "sentences": [...], "signed_at": "..."}`
 
-- Same input rules as `/api/draft` for `spot`; `sentences` must be ids from the bank. The server
-  re-composes the notice with `composeNotice`, so a signature only ever covers a well-formed notice
-  from the sentence bank, never text a client sent.
+- Same input rules as `/api/draft` for `spot`; `sentences` must be ids from the bank; `digest` is the
+  wording digest of the English and Spanish text the staff member reviewed. The server re-composes
+  the notice with `composeNotice`, so a signature only ever covers a well-formed notice from the
+  sentence bank, never text a client sent, and it answers `409 {"error":"wording_changed"}` if that
+  text is not the text the staff member reviewed (for example, the bank changed after the draft).
 - The payload is base64url JSON with fixed keys: Plus Code, district, treatment, counts, sentence
   indexes, the issue date (UTC) and a digest (first 128 bits of SHA-256) of the exact English and
   Spanish text. No free text. The signature is Ed25519 over the payload string.
@@ -107,7 +109,7 @@ Answer: `{"token": "<payload>.<signature>", "path": "/#/v/<token>", "en": "...",
   Plus Code. A QR code can be copied onto other paper, so the page asks the reader to compare the
   paper with the signed text and place, and flags notices older than six months.
 - Errors: as for the staff gate, then `503 {"error":"signing_not_configured"}` when the key is missing
-  or unusable, then `400` for bad input.
+  or unusable, then `400` for bad input, then `409 {"error":"wording_changed"}`.
 
 ## Staff-only access (draft, classify and sign)
 
