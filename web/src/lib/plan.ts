@@ -56,7 +56,8 @@ export function propose(c: Cell): Proposal {
     flags.push('Dumping for profit is egregious litter at any size (O.C.G.A. 16-7-51)')
   } else if (bulky >= 2 && bulky === lead) {
     treatment = 'bulk_outreach'
-    reasons.push(`Furniture, mattresses and appliances are mentioned most (${bulky} reports)`)
+    // A report can mention both, so the sum counts mentions, not reports.
+    reasons.push(`Furniture, mattresses and appliances are mentioned most (${items.furniture} + ${items.appliances} mentions)`)
   } else if (c.context.dead_ends_within_250 >= 3 && c.context.d_major_m > 150) {
     treatment = 'close_access'
     reasons.push(`${c.context.dead_ends_within_250} dead ends within 250 m, ${c.context.d_major_m} m from a major road`)
