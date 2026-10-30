@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "pnpm --dir web install --frozen-lockfile",
-  "buildCommand": "pnpm --dir web build",
+  "installCommand": "npx --yes pnpm@10.34.9 --dir web install --frozen-lockfile",
+  "buildCommand": "npx --yes pnpm@10.34.9 --dir web build",
   "outputDirectory": "web/dist",
   "functions": {
     "api/route.py": {
