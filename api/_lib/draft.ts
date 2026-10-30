@@ -9,33 +9,18 @@
 import { generateJson } from './gemini'
 import { InputError, boundedInt, exactKeys, isPlainObject, json, methodNotAllowed, readEnv, readJsonBody } from './http'
 import { createGateLimiters, staffGate, type GateDeps } from './staff'
+import {
+  ACTION, CLOSING, DISTRICT, ITEM_KINDS, OPENING, OWNERS, PLUS_CODE, SENTENCE_IDS, TREATMENTS, composeNotice, pickTips, sentenceBank,
+  type Bilingual, type ItemKind, type Owner, type SentenceId, type Spot, type Treatment,
+} from './notice'
+
+export { ACTION, CLOSING, ITEM_KINDS, OPENING, OWNERS, SENTENCE_IDS, TREATMENTS, composeNotice, pickTips, sentenceBank }
+export type { Bilingual, ItemKind, Owner, SentenceId, Spot, Treatment }
 
 export const DRAFT_MODEL = 'gemini-3.8-flash'
 export const DRAFT_MAX_BODY_BYTES = 4 * 1024
-export const ITEM_KINDS = ['tires', 'furniture', 'appliances', 'bags', 'construction'] as const
-export type ItemKind = (typeof ITEM_KINDS)[number]
-// The planner's treatment codes (web/src/lib/plan.ts). The client sends the code, never a sentence.
-export const TREATMENTS = ['close_access', 'sign_qr', 'bulk_outreach', 'tire_play', 'commercial_check', 'cleanup', 'camera'] as const
-export type Treatment = (typeof TREATMENTS)[number]
-export const OWNERS = ['city', 'cobb', 'gdot', 'private', 'confirm'] as const
-export type Owner = (typeof OWNERS)[number]
-
-export interface Spot {
-  plus_code: string
-  district: string | null
-  items: Record<ItemKind, number>
-  n: number
-  /** Reports in the last 12 months. A count, never a date: no published field dates one report. */
-  recent: number
-  treatment: Treatment
-  owner_label: Owner
-}
-
 const SPOT_KEYS = ['plus_code', 'district', 'items', 'n', 'recent', 'treatment', 'owner_label'] as const
 const MAX_COUNT = 10_000
-// Full Open Location Code as the pipeline writes it (olc.encode(lat, lng, 10) gives 8 + 2).
-const PLUS_CODE = /^[23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2,3}$/
-const DISTRICT = /^[1-6]$/
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], where: string): T {
   if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
@@ -83,133 +68,6 @@ export function validateDraftRequest(body: unknown): Spot {
   }
 }
 
-/** One sentence in both languages. The team wrote and translated every sentence; code fills numbers. */
-export interface Bilingual {
-  en: string
-  es: string
-}
-
-/** What the city is doing at the spot, one fixed sentence per planner treatment code. */
-export const ACTION: Record<Treatment, Bilingual> = {
-  close_access: {
-    en: 'The city plans to close off easy vehicle access to this spot.',
-    es: 'La ciudad planea cerrar el acceso fácil de vehículos a este lugar.',
-  },
-  sign_qr: {
-    en: 'The city is putting up a sign with a QR code so anyone can report dumping here.',
-    es: 'La ciudad va a poner un letrero con un código QR para que cualquier persona pueda reportar basura tirada aquí.',
-  },
-  bulk_outreach: {
-    en: 'The city is sharing how bulk-item pickup works, in English and Spanish.',
-    es: 'La ciudad está explicando cómo funciona la recogida de objetos grandes, en inglés y en español.',
-  },
-  tire_play: {
-    en: 'The city is promoting tire amnesty so old tires have a proper place to go.',
-    es: 'La ciudad está promoviendo la amnistía de llantas para que las llantas viejas tengan un lugar adecuado.',
-  },
-  commercial_check: {
-    en: 'The city is looking into where the dumped materials come from, including work and business waste.',
-    es: 'La ciudad está investigando de dónde vienen los materiales tirados, incluidos los desechos de obras y negocios.',
-  },
-  cleanup: { en: 'A city crew will clean up this spot.', es: 'Un equipo de la ciudad va a limpiar este lugar.' },
-  camera: {
-    en: 'The city may place a camera at this spot to discourage dumping.',
-    es: 'La ciudad podría poner una cámara en este lugar para evitar que se tire basura.',
-  },
-}
-
-/**
- * Which disposal tips belong in the notice. A group "dominates" when its count is the largest of
- * bulk items (furniture + appliances), tires, bags and construction debris. Ties include both tips.
- */
-export function pickTips(items: Record<ItemKind, number>): { bulkPickup: boolean; tireAmnesty: boolean } {
-  const bulk = items.furniture + items.appliances
-  const top = Math.max(bulk, items.tires, items.bags, items.construction)
-  if (top === 0) return { bulkPickup: false, tireAmnesty: false }
-  return { bulkPickup: bulk === top, tireAmnesty: items.tires === top }
-}
-
-/*
- * Gemini chooses, code writes. The model never writes a word of the notice: it picks which of the
- * sentences below to use and in what order, and this file renders them in English and Spanish with
- * every number taken from the request. A notice therefore cannot contain an invented name, address,
- * date or number, whatever the model returns. A staff member still approves every draft.
- */
-export const SENTENCE_IDS = [
-  'where', 'total', 'recent', 'tires', 'bulky', 'bags', 'construction', 'action', 'tip_bulk', 'tip_tires', 'no_blame', 'how_to_report',
-] as const
-export type SentenceId = (typeof SENTENCE_IDS)[number]
-const REQUIRED: readonly SentenceId[] = ['where', 'action', 'how_to_report']
-const MAX_OPTIONAL = 5
-export const OPENING: Bilingual = { en: 'Thank you, neighbors.', es: 'Gracias, vecinos.' }
-export const CLOSING: Bilingual = {
-  en: 'Thank you for helping keep this area clean.',
-  es: 'Gracias por ayudar a mantener limpia esta zona.',
-}
-
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
-
-/** The sentences this spot can use. A sentence whose fact is zero, or a tip that does not apply, is absent. */
-export function sentenceBank(s: Spot): Partial<Record<SentenceId, Bilingual>> {
-  const tips = pickTips(s.items)
-  const bank: Partial<Record<SentenceId, Bilingual>> = {
-    where: {
-      en: `Dumping keeps coming back at Plus Code ${s.plus_code}${s.district ? `, in council district ${s.district}` : ''}.`,
-      es: `La basura tirada sigue apareciendo en el Plus Code ${s.plus_code}${s.district ? `, en el distrito ${s.district}` : ''}.`,
-    },
-    total: {
-      // Names its subject: the model may place it after a tip, where "it" would mean the pickup.
-      en: `Dumping at this spot has been reported ${s.n} ${plural(s.n, 'time', 'times')} since 2021.`,
-      es: `La basura tirada en este lugar se ha reportado ${s.n} ${plural(s.n, 'vez', 'veces')} desde 2021.`,
-    },
-    action: ACTION[s.treatment],
-    no_blame: {
-      en: 'We are not blaming anyone. Most neighbors want this spot clean too.',
-      es: 'No estamos culpando a nadie. La mayoría de los vecinos también quiere este lugar limpio.',
-    },
-    how_to_report: {
-      en: 'To report dumping, scan the QR code on the city sign at this spot or report it on the City of Mableton website.',
-      es: 'Para reportar basura tirada, escanee el código QR del letrero de la ciudad en este lugar o repórtela en el sitio web de la Ciudad de Mableton.',
-    },
-  }
-  if (s.recent > 0) {
-    bank.recent = {
-      // Self-contained: the model may place it after any sentence, so it must not say "those".
-      en: `${s.recent} ${plural(s.recent, 'report was', 'reports were')} made in the last 12 months.`,
-      es: `Se ${plural(s.recent, 'hizo', 'hicieron')} ${s.recent} ${plural(s.recent, 'reporte', 'reportes')} en los últimos 12 meses.`,
-    }
-  }
-  const item = (n: number, en: string, es: string): Bilingual => ({
-    en: `${n} ${plural(n, 'report mentions', 'reports mention')} ${en}.`,
-    es: `${n} ${plural(n, 'reporte menciona', 'reportes mencionan')} ${es}.`,
-  })
-  if (s.items.tires > 0) bank.tires = item(s.items.tires, 'tires', 'llantas')
-  // Furniture and appliances are counted per category, and one report can mention both, so their
-  // sum is not a number of reports. Each count is stated on its own.
-  const { furniture: f, appliances: a } = s.items
-  if (f > 0 && a > 0) {
-    bank.bulky = {
-      en: `${f} ${plural(f, 'report mentions', 'reports mention')} furniture, and ${a} ${plural(a, 'mentions', 'mention')} appliances.`,
-      es: `${f} ${plural(f, 'reporte menciona', 'reportes mencionan')} muebles, y ${a} ${plural(a, 'menciona', 'mencionan')} electrodomésticos.`,
-    }
-  } else if (f > 0) bank.bulky = item(f, 'furniture', 'muebles')
-  else if (a > 0) bank.bulky = item(a, 'appliances', 'electrodomésticos')
-  if (s.items.bags > 0) bank.bags = item(s.items.bags, 'bags of trash', 'bolsas de basura')
-  if (s.items.construction > 0) bank.construction = item(s.items.construction, 'construction debris', 'escombros de construcción')
-  if (tips.bulkPickup) {
-    bank.tip_bulk = {
-      en: 'Large items like furniture and appliances can go out for bulk-item pickup instead of being left here. The City of Mableton website explains how to schedule it.',
-      es: 'Los objetos grandes, como muebles y electrodomésticos, se pueden sacar para la recogida de objetos grandes en vez de dejarlos aquí. El sitio web de la Ciudad de Mableton explica cómo programarla.',
-    }
-  }
-  if (tips.tireAmnesty) {
-    bank.tip_tires = {
-      en: 'Old tires can go to a tire amnesty event instead of being left here. The City of Mableton website lists the next one.',
-      es: 'Las llantas viejas se pueden llevar a un evento de amnistía de llantas en vez de dejarlas aquí. El sitio web de la Ciudad de Mableton anuncia el próximo.',
-    }
-  }
-  return bank
-}
 
 export function buildDraftPrompt(spot: Spot): { system: string; user: string } {
   const bank = sentenceBank(spot)
@@ -255,26 +113,6 @@ export function parseChoice(value: unknown): SentenceId[] {
   return list as SentenceId[]
 }
 
-/**
- * Renders the notice. Ids this spot cannot use are dropped, repeats are dropped, at most
- * MAX_OPTIONAL optional sentences are kept, and the required sentences are always present:
- * "where" first, "action" right after it, "how_to_report" last.
- */
-export function composeNotice(spot: Spot, chosen: readonly SentenceId[]): { en: string; es: string; sentences: SentenceId[] } {
-  const bank = sentenceBank(spot)
-  const optional: SentenceId[] = []
-  for (const id of chosen) {
-    if (bank[id] && !REQUIRED.includes(id) && !optional.includes(id) && optional.length < MAX_OPTIONAL) optional.push(id)
-  }
-  // Keep the model's order for optional sentences that come before the action, and after it.
-  const actionAt = chosen.indexOf('action')
-  const before = optional.filter((id) => actionAt === -1 || chosen.indexOf(id) < actionAt)
-  const after = optional.filter((id) => !before.includes(id))
-  const sentences: SentenceId[] = ['where', ...before, 'action', ...after, 'how_to_report']
-  const render = (lang: keyof Bilingual) =>
-    [OPENING[lang], ...sentences.map((id) => bank[id]![lang]), CLOSING[lang]].join(' ')
-  return { en: render('en'), es: render('es'), sentences }
-}
 
 export interface Deps extends GateDeps {
   fetchImpl?: typeof fetch
