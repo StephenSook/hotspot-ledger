@@ -16,7 +16,6 @@ export interface LedgerMapProps {
   cells: Cell[]
   risk?: RiskCell[]
   mode: MapMode
-  hideTop?: boolean
   throughYear?: number
   selectedId?: string | null
   highlightIds?: string[]
@@ -36,7 +35,7 @@ function center(map: MapLayers): [number, number] {
 
 
 export default function LedgerMap(props: LedgerMapProps) {
-  const { map, cells, risk = [], mode, hideTop = false, throughYear, selectedId, highlightIds = [], route, onSelect, pitch = 52, lastYear } = props
+  const { map, cells, risk = [], mode, throughYear, selectedId, highlightIds = [], route, onSelect, pitch = 52, lastYear } = props
   const [lng, lat] = useMemo(() => center(map), [map])
   const [viewState, setViewState] = useState<MapViewState>({ longitude: lng, latitude: lat - 0.012, zoom: 12.35, pitch, bearing: -14 })
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null)
@@ -64,7 +63,7 @@ export default function LedgerMap(props: LedgerMapProps) {
 
   const dynamic = useMemo(() => {
     const out = []
-    const counted = cells.map((c) => ({ c, v: cellCount(c, hideTop, throughYear, lastYear) }))
+    const counted = cells.map((c) => ({ c, v: cellCount(c, throughYear, lastYear) }))
     if (mode === 'ledger' || mode === 'plan') {
       out.push(new ScatterplotLayer<{ c: Cell; v: number }>({
         id: 'minor-cells', data: counted.filter((d) => d.v > 0 && d.v < 3),
@@ -78,7 +77,7 @@ export default function LedgerMap(props: LedgerMapProps) {
         getElevation: (d) => d.v,
         getFillColor: (d) => (highlight.size && !highlight.has(d.c.id) ? [90, 90, 90, 200] : d.c.id === selectedId ? WHITE : RED),
         pickable: true,
-        updateTriggers: { getFillColor: [selectedId, highlightIds.join(',')], getElevation: [hideTop, throughYear] },
+        updateTriggers: { getFillColor: [selectedId, highlightIds.join(',')], getElevation: [throughYear] },
         transitions: { getElevation: { duration: 700 } },
       }))
     }
@@ -104,7 +103,7 @@ export default function LedgerMap(props: LedgerMapProps) {
       }
     }
     return out
-  }, [cells, risk, mode, hideTop, throughYear, lastYear, selectedId, highlight, highlightIds, route])
+  }, [cells, risk, mode, throughYear, lastYear, selectedId, highlight, highlightIds, route])
 
   function describe(info: PickingInfo): string | null {
     const o = info.object as { c?: Cell; v?: number; risk?: number; district?: string | null; n?: number; street?: string } | undefined

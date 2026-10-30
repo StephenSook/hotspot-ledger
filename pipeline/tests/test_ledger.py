@@ -50,14 +50,10 @@ def good_cell(**over):
         "street": "Front St SW",
         "n": 1,
         "hotspot": False,
-        "n_others": None,
         "years": None,
-        "years_others": None,
         "items": None,
         "first_year": None,
-        "last_month": None,
-        "last_12_months": 1,
-        "photos": 1,
+        "last_12_months": None,
         "district": "5",
         "plus_code": "865QRCC9+23",
         "risk": 0.1,
@@ -77,6 +73,9 @@ def test_validate_cells_accepts_a_clean_small_cell():
     [
         {"lat": 33.820061},  # an exact report location instead of the cell center
         {"years": {"2026": 1}},  # detail on a cell with fewer than 3 reports
+        {"last_12_months": 1},  # recency on a cell with fewer than 3 reports
+        {"n_others": 0},  # any per-account count at spot level
+        {"photos": 1},
         {"street": "Example Cemetery 1234 Fake St, Apt #2"},  # free text
         {"plus_code": "not a code"},
         {"address": "x"},  # any key outside the allow-list
@@ -140,7 +139,9 @@ def test_published_files_carry_no_identifying_fields():
     cells = json.loads((OUT / "cells.json").read_text())
     cli.validate_cells(cells)  # published file must pass the same allow-list
     small = [c for c in cells if not c["hotspot"]]
-    assert small and all(c["years"] is None and c["last_month"] is None for c in small)
+    assert small and all(all(c[k] is None for k in cli.DETAIL_KEYS) for c in small)
+    for c in cells:
+        assert not {"n_others", "years_others", "last_month", "photos"} & set(c), "per-account or report-level field"
 
 
 @pytest.mark.skipif(not (OUT / "model.json").exists(), reason="run the pipeline first")

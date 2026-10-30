@@ -26,7 +26,7 @@ const CASES = [
     body: {
       spot: {
         plus_code: '865QRCC9+23', district: '5', items: { tires: 11, furniture: 9, appliances: 3, bags: 14, construction: 1 },
-        n: 57, last: '2026-10-25', treatment: 'sign_qr', owner_label: 'confirm',
+        n: 57, recent: 9, treatment: 'sign_qr', owner_label: 'confirm',
       },
     },
     reply: { en: 'Thank you, neighbors.', es: 'Gracias, vecinos.' },

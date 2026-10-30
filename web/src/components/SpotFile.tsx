@@ -7,11 +7,6 @@ const ITEM_LABEL: Record<ItemKind, string> = {
   tires: 'Tires', furniture: 'Furniture', appliances: 'Appliances', bags: 'Bags of trash', construction: 'Construction',
 }
 
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number)
-  return new Date(y, m - 1, 15).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-}
-
 export default function SpotFile({ cell, cells, onClose, onAddToPlan, pinned }: {
   cell: Cell
   cells: Cell[]
@@ -36,9 +31,8 @@ export default function SpotFile({ cell, cells, onClose, onAddToPlan, pinned }: 
       <dl className="readout lbl">
         <dt>Council district</dt><dd>{cell.district ?? 'n/a'}</dd>
         <dt>Reports since 2021</dt><dd>{int(cell.n)}</dd>
-        {cell.n_others != null && <><dt>Without the most active account</dt><dd>{int(cell.n_others)}</dd></>}
-        <dt>Last 12 months</dt><dd>{cell.last_12_months}</dd>
-        {cell.last_month && <><dt>Last report</dt><dd>{monthLabel(cell.last_month)}</dd></>}
+        {cell.last_12_months != null && <><dt>Last 12 months</dt><dd>{cell.last_12_months}</dd></>}
+        {cell.first_year != null && <><dt>First report</dt><dd>{cell.first_year}</dd></>}
         <dt>Model risk rank</dt><dd>{rank} of {cells.length}</dd>
       </dl>
       {cell.hotspot ? (
@@ -51,7 +45,7 @@ export default function SpotFile({ cell, cells, onClose, onAddToPlan, pinned }: 
           {items.map(([k, v]) => <HBar key={k} label={ITEM_LABEL[k]} value={v} max={maxI} text={String(v)} red={k === 'tires' && v > 0} />)}
         </>
       ) : (
-        <p className="note">Fewer than 3 reports here, so per-year counts, dates and item details are not published. One report must never be traceable.</p>
+        <p className="note">Fewer than 3 reports here, so only the count is published: no years, no recency, no items.</p>
       )}
       <hr className="rule" />
       <span className="lbl">Ground</span>

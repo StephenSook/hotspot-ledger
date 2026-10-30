@@ -1,7 +1,7 @@
 // The weekly planner. Deterministic rules, no model: code proposes, a person approves.
 // Each rule cites the evidence that triggered it so staff can see why.
 import type { Cell } from '../data/types'
-import { itemsOf } from './cells'
+import { itemsOf, recentOf } from './cells'
 
 export type Treatment =
   | 'close_access'
@@ -33,11 +33,12 @@ export interface Proposal {
 
 /** Priority favors recent activity, then history, then model risk. Documented in the UI. */
 export function priority(c: Cell): number {
-  return Math.round((c.last_12_months * 2 + Math.min(c.n, 60) / 10 + c.risk * 5) * 100) / 100
+  return Math.round((recentOf(c) * 2 + Math.min(c.n, 60) / 10 + c.risk * 5) * 100) / 100
 }
 
 export function propose(c: Cell): Proposal {
-  const reasons: string[] = [`${c.n} dumping reports since 2021, ${c.last_12_months} in the last 12 months`]
+  const recent = recentOf(c)
+  const reasons: string[] = [`${c.n} dumping reports since 2021, ${recent} in the last 12 months`]
   const flags: string[] = []
   const items = itemsOf(c)
   const bulky = items.furniture + items.appliances
@@ -59,7 +60,7 @@ export function propose(c: Cell): Proposal {
   } else if (c.context.dead_ends_within_250 >= 3 && c.context.d_major_m > 150) {
     treatment = 'close_access'
     reasons.push(`${c.context.dead_ends_within_250} dead ends within 250 m, ${c.context.d_major_m} m from a major road`)
-  } else if (c.last_12_months >= 4 && c.n >= 10) {
+  } else if (recent >= 4 && c.n >= 10) {
     treatment = 'camera'
     reasons.push('One of the busiest spots: a camera shows what actually happens here before anyone guesses')
   } else {
@@ -73,7 +74,7 @@ export function propose(c: Cell): Proposal {
     }
     flags.push('Check for more than 25 stored tires: a state violation to refer to EPD (Rule 391-3-4-.19)')
   }
-  if (c.last_12_months >= 1 && treatment !== 'tire_play') also.push('cleanup')
+  if (recent >= 1 && treatment !== 'tire_play') also.push('cleanup')
   if (treatment !== 'sign_qr' && treatment !== 'camera') also.push('sign_qr')
   if (c.owner_hint.owner === 'gdot') flags.push(c.owner_hint.label)
 
@@ -83,7 +84,7 @@ export function propose(c: Cell): Proposal {
 /** The week's list: active hotspots first, capped so the list stays short on purpose. */
 export function weeklyPlan(cells: Cell[], capacity = 8): Proposal[] {
   return cells
-    .filter((c) => c.hotspot && c.last_12_months > 0)
+    .filter((c) => c.hotspot && recentOf(c) > 0)
     .map(propose)
     .sort((a, b) => b.priority - a.priority || a.cellId.localeCompare(b.cellId))
     .slice(0, Math.max(1, capacity))

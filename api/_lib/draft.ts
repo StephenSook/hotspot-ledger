@@ -23,12 +23,13 @@ export interface Spot {
   district: string | null
   items: Record<ItemKind, number>
   n: number
-  last: string
+  /** Reports in the last 12 months. A count, never a date: no published field dates one report. */
+  recent: number
   treatment: Treatment
   owner_label: Owner
 }
 
-const SPOT_KEYS = ['plus_code', 'district', 'items', 'n', 'last', 'treatment', 'owner_label'] as const
+const SPOT_KEYS = ['plus_code', 'district', 'items', 'n', 'recent', 'treatment', 'owner_label'] as const
 const MAX_COUNT = 10_000
 // Full Open Location Code as the pipeline writes it (olc.encode(lat, lng, 10) gives 8 + 2).
 const PLUS_CODE = /^[23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2,3}$/
@@ -39,18 +40,6 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], where: s
     throw new InputError(`${where} must be one of: ${allowed.join(', ')}`)
   }
   return value as T
-}
-
-/** YYYY-MM or YYYY-MM-DD, and a real calendar month or day. */
-function reportDate(value: unknown, where: string): string {
-  const match = typeof value === 'string' ? /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(value) : null
-  if (!match) throw new InputError(`${where} must be YYYY-MM or YYYY-MM-DD`)
-  const [y, m, d] = [Number(match[1]), Number(match[2]), match[3] === undefined ? 1 : Number(match[3])]
-  const date = new Date(Date.UTC(y, m - 1, d))
-  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
-    throw new InputError(`${where} is not a real calendar date`)
-  }
-  return value as string
 }
 
 export function validateDraftRequest(body: unknown): Spot {
@@ -73,12 +62,15 @@ export function validateDraftRequest(body: unknown): Spot {
   const items = {} as Record<ItemKind, number>
   for (const kind of ITEM_KINDS) items[kind] = boundedInt(rawItems[kind], `spot.items.${kind}`, 0, MAX_COUNT)
 
+  const n = boundedInt(spot.n, 'spot.n', 0, MAX_COUNT)
+  const recent = boundedInt(spot.recent, 'spot.recent', 0, MAX_COUNT)
+  if (recent > n) throw new InputError('spot.recent cannot be larger than spot.n')
   return {
     plus_code: spot.plus_code,
     district: spot.district,
     items,
-    n: boundedInt(spot.n, 'spot.n', 0, MAX_COUNT),
-    last: reportDate(spot.last, 'spot.last'),
+    n,
+    recent,
     treatment: oneOf(spot.treatment, TREATMENTS, 'spot.treatment'),
     owner_label: oneOf(spot.owner_label, OWNERS, 'spot.owner_label'),
   }
@@ -105,23 +97,11 @@ export function pickTips(items: Record<ItemKind, number>): { bulkPickup: boolean
   return { bulkPickup: bulk === top, tireAmnesty: items.tires === top }
 }
 
-/**
- * How recent the last report is, in words. The model is never given a date or a year, because the
- * output check rejects any run of three or more digits.
- */
-export function recencyPhrase(last: string, now: Date): string {
-  const [y, m, d] = last.split('-').map(Number)
-  const days = Math.floor((now.getTime() - Date.UTC(y, m - 1, d ?? 1)) / 86_400_000)
-  if (days <= 31) return 'within the last month'
-  if (days <= 92) return 'within the last three months'
-  if (days <= 366) return 'within the past year'
-  return 'more than a year ago'
-}
-
-// Same reason: counts of 100 or more are given in words. Real cells are far below that.
+// The output check rejects any run of three or more digits, so the model is never given a date or a
+// year, and counts of 100 or more are given in words. Real cells are far below that.
 const countFact = (n: number): number | string => (n >= 100 ? 'over one hundred' : n)
 
-export function buildDraftPrompt(spot: Spot, now: Date = new Date()): { system: string; user: string } {
+export function buildDraftPrompt(spot: Spot): { system: string; user: string } {
   const tips = pickTips(spot.items)
   const tipRules: string[] = []
   if (tips.bulkPickup) {
@@ -159,7 +139,7 @@ export function buildDraftPrompt(spot: Spot, now: Date = new Date()): { system: 
     plus_code: spot.plus_code,
     council_district: spot.district ?? 'not known',
     dumping_reports_on_record: countFact(spot.n),
-    most_recent_report: recencyPhrase(spot.last, now),
+    reports_in_the_last_12_months: countFact(spot.recent),
     items_reported: items,
     city_action: TREATMENT_TEXT[spot.treatment],
   }
@@ -235,7 +215,7 @@ export async function handleDraft(request: Request, deps: Deps = {}): Promise<Re
   }
 
   const now = (deps.now ?? (() => new Date()))()
-  const prompt = buildDraftPrompt(spot, now)
+  const prompt = buildDraftPrompt(spot)
   const outcome = await generateJson({
     model: DRAFT_MODEL,
     apiKey,

@@ -8,7 +8,7 @@ import { int } from '../lib/format'
 import { STAR, TREATMENT_LABEL, earliestAmnesty, isoWeek, propose, starReimbursable, weeklyPlan, type Proposal } from '../lib/plan'
 import { useStored } from '../lib/store'
 import { csv } from '../lib/csv'
-import { itemsOf } from '../lib/cells'
+import { itemsOf, recentOf } from '../lib/cells'
 
 type Owner = '' | 'city' | 'cobb' | 'gdot' | 'private'
 const OWNER_LABEL: Record<Exclude<Owner, ''>, string> = { city: 'City of Mableton', cobb: 'Cobb County DOT', gdot: 'Georgia DOT', private: 'Private owner' }
@@ -61,7 +61,7 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
     const owner = owners[p.cellId]
     // Codes only: the server allow-lists every field, and free text never reaches the model.
     const r = await draftNotice({
-      plus_code: c.plus_code, district: c.district, items: itemsOf(c), n: c.n, last: c.last_month ?? '',
+      plus_code: c.plus_code, district: c.district, items: itemsOf(c), n: c.n, recent: recentOf(c),
       treatment: p.treatment, owner_label: owner || c.owner_hint.owner,
     })
     setDrafts((d) => ({ ...d, [p.cellId]: r.ok ? r.data : explain(r.error, r.status) }))

@@ -51,7 +51,7 @@ export const orderStops = (stops: { id: string; lat: number; lng: number }[], st
   post<RouteResult>('/api/route', { stops, start_id })
 
 export const draftNotice = (spot: {
-  plus_code: string; district: string | null; items: Record<string, number>; n: number; last: string; treatment: string; owner_label: string
+  plus_code: string; district: string | null; items: Record<string, number>; n: number; recent: number; treatment: string; owner_label: string
 }) => post<DraftResult>('/api/draft', { spot })
 
 export const classifyPhoto = (image: string) => post<ClassifyResult>('/api/classify', { image }, 40000)

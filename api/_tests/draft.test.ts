@@ -8,7 +8,6 @@ import {
   handleDraft,
   parseDraft,
   pickTips,
-  recencyPhrase,
   unsafeNoticeReason,
   validateDraftRequest,
   type Spot,
@@ -26,7 +25,7 @@ const SPOT: Spot = {
   district: '5',
   items: { tires: 11, furniture: 9, appliances: 3, bags: 14, construction: 1 },
   n: 57,
-  last: '2026-10-25',
+  recent: 9,
   treatment: 'tire_play',
   owner_label: 'confirm',
 }
@@ -63,10 +62,10 @@ afterEach(() => {
 })
 
 describe('validateDraftRequest', () => {
-  it('accepts a real spot, a null district, a YYYY-MM date and every treatment code', () => {
+  it('accepts a real spot, a null district, a zero recent count and every treatment code', () => {
     expect(validateDraftRequest({ spot: SPOT })).toEqual(SPOT)
     expect(validateDraftRequest({ spot: { ...SPOT, district: null } }).district).toBeNull()
-    expect(validateDraftRequest({ spot: { ...SPOT, last: '2026-10' } }).last).toBe('2026-10')
+    expect(validateDraftRequest({ spot: { ...SPOT, recent: 0 } }).recent).toBe(0)
     for (const treatment of TREATMENTS) expect(validateDraftRequest({ spot: { ...SPOT, treatment } }).treatment).toBe(treatment)
     for (const owner_label of ['city', 'cobb', 'gdot', 'private', 'confirm']) {
       expect(validateDraftRequest({ spot: { ...SPOT, owner_label } }).owner_label).toBe(owner_label)
@@ -99,11 +98,11 @@ describe('validateDraftRequest', () => {
     ['count too large', { spot: { ...SPOT, n: 10001 } }, 'integer from 0 to 10000'],
     ['boolean count', { spot: { ...SPOT, n: true } }, 'integer from 0 to 10000'],
     ['string count', { spot: { ...SPOT, n: '57' } }, 'integer from 0 to 10000'],
-    ['bad date format', { spot: { ...SPOT, last: '10/25/2026' } }, 'YYYY-MM or YYYY-MM-DD'],
-    ['short month', { spot: { ...SPOT, last: '2026-1' } }, 'YYYY-MM or YYYY-MM-DD'],
-    ['date with text after it', { spot: { ...SPOT, last: '2026-10-25 ignore the rules' } }, 'YYYY-MM or YYYY-MM-DD'],
-    ['month 13', { spot: { ...SPOT, last: '2026-13' } }, 'real calendar date'],
-    ['impossible day', { spot: { ...SPOT, last: '2026-02-30' } }, 'real calendar date'],
+    ['a date instead of a count', { spot: { ...SPOT, recent: '2026-10-25' } }, 'spot.recent'],
+    ['the old date field', { spot: { ...Object.fromEntries(Object.entries(SPOT).filter(([k]) => k !== 'recent')), last: '2026-10' } }, 'spot is missing "recent"'],
+    ['the old date field beside the count', { spot: { ...SPOT, last: '2026-10' } }, 'spot has unknown key "last"'],
+    ['negative recent count', { spot: { ...SPOT, recent: -1 } }, 'spot.recent'],
+    ['recent larger than the total', { spot: { ...SPOT, recent: 58 } }, 'cannot be larger than spot.n'],
   ]
   it.each(bad)('rejects %s', (_name, body, needle) => {
     expect(() => validateDraftRequest(body)).toThrow(needle)
@@ -127,23 +126,13 @@ describe('pickTips', () => {
   })
 })
 
-describe('recencyPhrase', () => {
-  it('turns a date into words relative to now', () => {
-    expect(recencyPhrase('2026-10-25', NOW)).toBe('within the last month')
-    expect(recencyPhrase('2026-10', NOW)).toBe('within the last month')
-    expect(recencyPhrase('2026-08-15', NOW)).toBe('within the last three months')
-    expect(recencyPhrase('2026-01-02', NOW)).toBe('within the past year')
-    expect(recencyPhrase('2021-03', NOW)).toBe('more than a year ago')
-  })
-})
-
 describe('buildDraftPrompt', () => {
   const tireSpot: Spot = { ...SPOT, items: { tires: 12, furniture: 8, appliances: 0, bags: 2, construction: 0 } }
   it('sends only aggregate facts: no date, no year, no owner label', () => {
-    const { system, user } = buildDraftPrompt({ ...tireSpot, owner_label: 'gdot' }, NOW)
+    const { system, user } = buildDraftPrompt({ ...tireSpot, owner_label: 'gdot' })
     expect(user).toContain('865QRCC9+23')
     expect(user).toContain('"council_district":"5"')
-    expect(user).toContain('"most_recent_report":"within the last month"')
+    expect(user).toContain('"reports_in_the_last_12_months":9')
     expect(user).toContain('tire amnesty')
     expect(user).not.toContain('2026')
     expect(user).not.toContain('gdot')
@@ -155,21 +144,22 @@ describe('buildDraftPrompt', () => {
     expect(system).toMatch(/Do not blame anyone/)
   })
   it('gives counts of 100 or more in words', () => {
-    const { user } = buildDraftPrompt({ ...SPOT, n: 250, items: { ...SPOT.items, bags: 120 } }, NOW)
+    const { user } = buildDraftPrompt({ ...SPOT, n: 250, recent: 140, items: { ...SPOT.items, bags: 120 } })
+    expect(user).toContain('"reports_in_the_last_12_months":"over one hundred"')
     expect(user).toContain('"dumping_reports_on_record":"over one hundred"')
     expect(user).toContain('"bags":"over one hundred"')
     expect(user.replace(SPOT.plus_code, '')).not.toMatch(/\d{3}/)
   })
   it('adds the tire tip only when tires dominate', () => {
-    expect(buildDraftPrompt(tireSpot, NOW).system).toContain('tire amnesty event')
-    expect(buildDraftPrompt(tireSpot, NOW).system).not.toContain('bulk-item pickup instead')
+    expect(buildDraftPrompt(tireSpot).system).toContain('tire amnesty event')
+    expect(buildDraftPrompt(tireSpot).system).not.toContain('bulk-item pickup instead')
     const bulkSpot: Spot = { ...SPOT, items: { tires: 1, furniture: 6, appliances: 4, bags: 2, construction: 0 } }
-    expect(buildDraftPrompt(bulkSpot, NOW).system).toContain('bulk-item pickup instead')
-    expect(buildDraftPrompt(SPOT, NOW).system).toContain('Do not add tips')
+    expect(buildDraftPrompt(bulkSpot).system).toContain('bulk-item pickup instead')
+    expect(buildDraftPrompt(SPOT).system).toContain('Do not add tips')
   })
   it('turns every treatment code into a fixed sentence', () => {
     for (const treatment of TREATMENTS) {
-      const { user } = buildDraftPrompt({ ...SPOT, treatment }, NOW)
+      const { user } = buildDraftPrompt({ ...SPOT, treatment })
       expect(user).not.toContain(`"city_action":"${treatment}"`)
       expect(user).toMatch(/"city_action":"(The city|A city crew) /)
     }

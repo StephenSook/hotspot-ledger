@@ -52,7 +52,7 @@ Staff features (Gemini drafts and the photo check) need two server environment v
 ## Privacy and data rules
 
 - Public data only. Published files are aggregates: no report text, no addresses, no reporter identifiers, no photos. A test fails the build otherwise.
-- Spots sit at the center of a ~150 m cell, never at a report's location. Spots with fewer than 3 reports publish only a count. Street names come from OpenStreetMap, never from report text.
+- Spots sit at the center of a ~150 m cell, never at a report's location. Spots with fewer than 3 reports publish only a count. Nothing per account is published at spot level (that would map one person's reports), and no spot carries a month, a day or a photo count. Street names come from OpenStreetMap, never from report text.
 - Reporter IDs become keyed pseudonyms inside the pipeline and never leave it. Raw reports stay in the gitignored local cache; there is no scheduled refresh in CI.
 - No license-plate reading anywhere. The camera page runs on the device and sees people and vehicles as boxes.
 - Field photos are face-blurred on the device before they leave it.

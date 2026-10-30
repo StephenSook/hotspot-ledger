@@ -31,21 +31,21 @@ export default function Ledger({ data, onAddToPlan, pinned }: { data: LedgerData
 
   const ranked = useMemo(
     () => cells
-      .map((c) => ({ c, v: cellCount(c, hideTop, through, lastYear) }))
+      .map((c) => ({ c, v: cellCount(c, through, lastYear) }))
       .filter((d) => d.v >= 3)
       .sort((a, b) => b.v - a.v),
-    [cells, hideTop, through, lastYear],
+    [cells, through, lastYear],
   )
   const shown = ranked.reduce((s, d) => s + d.v, 0)
-  const total = cells.reduce((s, c) => s + cellCount(c, hideTop, through, lastYear), 0)
+  const total = cells.reduce((s, c) => s + cellCount(c, through, lastYear), 0)
   const yearly = hideTop ? m.yearly_without_top_account : m.yearly
   const maxYear = Math.max(...Object.values(m.yearly))
-  const r84 = m.return_rates['84']
+  const r84 = (hideTop ? m.return_rates_without_top_account : m.return_rates)['84']
   const cr = m.capture_recapture
 
   return (
     <div className="page">
-      <LedgerMap map={map} cells={cells} mode="ledger" hideTop={hideTop} throughYear={through} lastYear={lastYear} selectedId={selected?.id} onSelect={setSelected} />
+      <LedgerMap map={map} cells={cells} mode="ledger" throughYear={through} lastYear={lastYear} selectedId={selected?.id} onSelect={setSelected} />
 
       <div className="hud hud-left stack">
         <Frame className="stack" label="Summary">
@@ -63,7 +63,7 @@ export default function Ledger({ data, onAddToPlan, pinned }: { data: LedgerData
           <div className="grid2">
             <Stat value={int(m.dumping_reports)} label="dumping reports inside today's city limits since 2021" />
             <Stat value={`${m.median_close_days} d`} label="median time to close one" />
-            <Stat value={pct(r84.share)} label="of closed reports see dumping return to the same spot within 12 weeks" red />
+            <Stat value={pct(r84.share)} label={`of closed reports see dumping return to the same spot within 12 weeks${hideTop ? ', without the most active account' : ''}`} red />
             <Stat value={`~${int(cr.estimate)}`} label={`places with dumping, estimated, against ${int(cr.seen)} with a report from ${cr.years.replace('-', ' to ')}`} />
           </div>
         </Frame>
@@ -77,8 +77,8 @@ export default function Ledger({ data, onAddToPlan, pinned }: { data: LedgerData
           </button>
           <p className="dim" style={{ fontSize: 12 }}>
             {hideTop
-              ? 'Most columns shrink. A complaint map is mostly a map of who reports, which is why the plan also looks where reports are quiet.'
-              : 'We never name or map a reporter. This share comes from hashed account IDs.'}
+              ? 'The yearly counts and the return rate now leave that account out. The map does not change: per-spot counts without one account would map one person\'s reports, so they are never published.'
+              : 'We never name or map a reporter. This share comes from keyed pseudonyms inside the pipeline.'}
           </p>
         </Frame>
         <Frame className="stack" label="By year">
@@ -89,7 +89,9 @@ export default function Ledger({ data, onAddToPlan, pinned }: { data: LedgerData
             </button>
           </div>
           {years.map((y) => (
-            <HBar key={y} label={y === lastYear ? `${y} so far` : String(y)} value={yearly[String(y)]} max={maxYear} text={int(yearly[String(y)])} red={y === through} />
+            <div key={y} data-testid={`year-${y}`}>
+              <HBar label={y === lastYear ? `${y} so far` : String(y)} value={yearly[String(y)]} max={maxYear} text={int(yearly[String(y)])} red={y === through} />
+            </div>
           ))}
           <label className="stack" style={{ gap: 4 }}>
             <span className="lbl">Show reports through {through}</span>

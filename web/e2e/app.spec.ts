@@ -31,13 +31,19 @@ test('ledger numbers come from the pipeline, not from the page', async ({ page, 
   await expect(page.getByRole('heading', { level: 1 })).toContainText(String(metrics.hotspots))
 })
 
-test('hiding the most active account changes the spot list', async ({ page }) => {
+test('hiding the most active account changes citywide numbers, never a per-spot view', async ({ page, request }) => {
+  const metrics = await (await request.get('/data/metrics.json')).json()
+  const first = Object.keys(metrics.yearly)[0]
   await page.goto('/#/ledger')
   const count = page.getByText(/\[\d+\] in total/)
   await expect(count).toBeVisible({ timeout: 30_000 })
   const before = await count.textContent()
+  await expect(page.getByTestId(`year-${first}`)).toContainText(metrics.yearly[first].toLocaleString('en-US'))
   await page.getByRole('button', { name: /hide the most active account/i }).click()
-  await expect(count).not.toHaveText(before ?? '')
+  await expect(page.getByRole('button', { name: /show every account/i })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId(`year-${first}`)).toContainText(metrics.yearly_without_top_account[first].toLocaleString('en-US'))
+  await expect(page.getByText(/would map one person's reports/i)).toBeVisible()
+  await expect(count).toHaveText(before ?? '')
 })
 
 test('plan: approval stays locked until the owner of the ground is confirmed', async ({ page }) => {

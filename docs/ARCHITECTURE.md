@@ -59,15 +59,23 @@ two jobs that need a server (route ordering and Gemini drafting), and nothing id
 6. **Export.** Only aggregates leave the pipeline: cell centers and counts, metrics, model
    evaluation and per-cell scores. No report text, no addresses, no reporter IDs, no photos.
    - Every spot is drawn at the center of its ~150 m cell, never at a report's location.
-   - Per-year counts, item mix, first year, last month and the without-top-account count are
-     published only for hotspots (3+ reports). A cell with 1 or 2 reports publishes a count only,
-     so one report can never be traced to a date or an item.
+   - Nothing per account is published at spot level. A per-spot count "without the most active
+     account" would let anyone subtract it from the total and map one person's reports, so the
+     account split exists only as citywide numbers (yearly counts, return rates, the model's stress
+     test). No month or day and no photo count are published for any spot.
+   - Per-year counts, item mix, first year and the 12-month count are published only for hotspots
+     (3+ reports). A cell with 1 or 2 reports publishes a count only.
    - Street labels are the nearest named roads in OpenStreetMap (up to two, joined with "&"),
      never text from a report.
    - An allow-list schema validator (`validate_cells`) rejects any extra field, any coordinate that
      is not a cell center, any free-text street label and any detail on a small cell.
    - A second guard (`privacy_guard`) scans every export for reporter pseudonyms, report text
      keys and address patterns, and names the file without echoing the value.
+   - Accepted residual, on purpose: a hotspot's year can hold a single report, so the published
+     file says "one dumping report here in 2024". We keep yearly counts because the time scrubber
+     needs them, and that report is already public on SeeClickFix with its exact date, place and
+     text. What we refuse to add is anything SeeClickFix does not show in one place: an account's
+     footprint across spots, or a profile of who reports.
 7. **Serve.** The web app loads the JSON and draws everything client-side.
 
 ## Front end
@@ -81,8 +89,9 @@ two jobs that need a server (route ordering and Gemini drafting), and nothing id
   Mableton clock, 10 px uppercase labels with tight tracking, corner-bracket frames, a light film
   grain, and a blur-in line reveal. Fonts: Geist and Geist Mono (SIL Open Font License).
 - **Pages**
-  - **Ledger:** the 3D map, the toggle that hides the single most active account, the year
-    scrubber, top spots, and the measured numbers.
+  - **Ledger:** the 3D map, the year scrubber, top spots, the measured numbers, and a toggle that
+    recomputes the citywide numbers without the single most active account (the map stays as is,
+    because per-spot counts without one account would map that account).
   - **Where next:** the risk layer, the evaluation chart with every baseline, equity by district.
   - **Plan:** the weekly plan from the treatment ladder, approve / defer / reject, owner tag,
     route order, bilingual notice drafts, STAR tire-grant evidence log and 90-day calendar.

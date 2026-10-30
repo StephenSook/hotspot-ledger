@@ -65,14 +65,11 @@ export interface Cell {
   street: string
   n: number
   hotspot: boolean
-  n_others: number | null
+  /** Detail below is published only for recurring spots (3+ reports); small spots publish a count only. */
   years: Record<string, number> | null
-  years_others: Record<string, number> | null
   items: Record<ItemKind, number> | null
   first_year: number | null
-  last_month: string | null
-  last_12_months: number
-  photos: number
+  last_12_months: number | null
   district: string | null
   plus_code: string
   risk: number

@@ -69,21 +69,17 @@ CELL_KEYS = {
     "street",
     "n",
     "hotspot",
-    "n_others",
     "years",
-    "years_others",
     "items",
     "first_year",
-    "last_month",
     "last_12_months",
-    "photos",
     "district",
     "plus_code",
     "risk",
     "owner_hint",
     "context",
 }
-DETAIL_KEYS = ("n_others", "years", "years_others", "items", "first_year", "last_month")
+DETAIL_KEYS = ("years", "items", "first_year", "last_12_months")
 STREET_OK = re.compile(r"^[A-Za-z0-9 .&'/-]{0,48}$")
 PLUS_OK = re.compile(r"^[23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2}$")
 
@@ -225,7 +221,7 @@ def main(argv=None) -> int:
                     {"name": "OpenStreetMap", "license": "ODbL", "credit": "OpenStreetMap contributors"},
                     {"name": "American Community Survey via Google Data Commons", "license": "public"},
                 ],
-                "privacy": "Aggregates only: no report text, no addresses, no reporter identifiers, no photos. Spots sit at the center of a ~150 m cell, never at a report's location, and spots with fewer than 3 reports publish only a count.",
+                "privacy": "Aggregates only: no report text, no addresses, no reporter identifiers, no photos. Spots sit at the center of a ~150 m cell, never at a report's location, and spots with fewer than 3 reports publish only a count. Nothing per account is published at spot level.",
             },
             hashes,
         ),

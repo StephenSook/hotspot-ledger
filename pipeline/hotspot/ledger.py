@@ -137,27 +137,18 @@ def build(reports: list[Report], total_in_city: int, now: dt.datetime) -> dict:
             r.key,
             {
                 "n": 0,
-                "n_others": 0,
                 "years": collections.Counter(),
                 "items": collections.Counter(),
-                "years_others": collections.Counter(),
                 "first": r.created,
-                "last": r.created,
-                "photos": 0,
                 "lat_sum": 0.0,
                 "lng_sum": 0.0,
             },
         )
         c["n"] += 1
-        c["n_others"] += r.reporter != top
         c["years"][r.created.year] += 1
-        if r.reporter != top:
-            c["years_others"][r.created.year] += 1
         for it in r.items:
             c["items"][it] += 1
         c["first"] = min(c["first"], r.created)
-        c["last"] = max(c["last"], r.created)
-        c["photos"] += r.has_photo
         c["lat_sum"] += r.lat
         c["lng_sum"] += r.lng
 
@@ -166,9 +157,12 @@ def build(reports: list[Report], total_in_city: int, now: dt.datetime) -> dict:
     pops = {name: pop for name, pop, _ in districts()}
     twelve_months_ago = now - dt.timedelta(days=365)
 
-    # Public rows use the CELL CENTER, never a report location. Detail that could single out one
-    # report (exact dates, per-year counts, the account split, item mentions) is published only
-    # for recurring spots with at least HOTSPOT_MIN_REPORTS reports.
+    # Public rows use the CELL CENTER, never a report location. Nothing per account is published at
+    # spot level (n minus a without-top-account count would map one person's reports), no month or
+    # day, and no photo count. Per-year counts, item mentions, first year and the 12-month count are
+    # published only for recurring spots with at least HOTSPOT_MIN_REPORTS reports. Accepted
+    # residual, documented in docs/ARCHITECTURE.md: a recurring spot's year can hold one report; the
+    # report itself is already public on SeeClickFix with its exact date.
     cell_rows = []
     for k, c in cells.items():
         clat, clng = cell_center(k)
@@ -182,14 +176,10 @@ def build(reports: list[Report], total_in_city: int, now: dt.datetime) -> dict:
                 "street": "",  # filled from OpenStreetMap road names, never from report addresses
                 "n": c["n"],
                 "hotspot": is_hot,
-                "n_others": c["n_others"] if is_hot else None,
                 "years": {str(y): c["years"].get(y, 0) for y in years} if is_hot else None,
-                "years_others": {str(y): c["years_others"].get(y, 0) for y in years} if is_hot else None,
                 "items": {it: c["items"].get(it, 0) for it in ITEM_PATTERNS} if is_hot else None,
                 "first_year": c["first"].year if is_hot else None,
-                "last_month": c["last"].strftime("%Y-%m") if is_hot else None,
-                "last_12_months": sum(1 for r in reports if r.key == k and r.created >= twelve_months_ago),
-                "photos": c["photos"],
+                "last_12_months": (sum(1 for r in reports if r.key == k and r.created >= twelve_months_ago) if is_hot else None),
                 "district": district,
                 "plus_code": olc.encode(clat, clng, 10),
             }
