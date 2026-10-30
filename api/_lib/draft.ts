@@ -147,7 +147,6 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 /** The sentences this spot can use. A sentence whose fact is zero, or a tip that does not apply, is absent. */
 export function sentenceBank(s: Spot): Partial<Record<SentenceId, Bilingual>> {
   const tips = pickTips(s.items)
-  const bulky = s.items.furniture + s.items.appliances
   const bank: Partial<Record<SentenceId, Bilingual>> = {
     where: {
       en: `Dumping keeps coming back at Plus Code ${s.plus_code}${s.district ? `, in council district ${s.district}` : ''}.`,
@@ -169,8 +168,9 @@ export function sentenceBank(s: Spot): Partial<Record<SentenceId, Bilingual>> {
   }
   if (s.recent > 0) {
     bank.recent = {
-      en: `${s.recent} of those reports came in the last 12 months.`,
-      es: `${s.recent} de esos reportes ${plural(s.recent, 'llegó', 'llegaron')} en los últimos 12 meses.`,
+      // Self-contained: the model may place it after any sentence, so it must not say "those".
+      en: `${s.recent} ${plural(s.recent, 'report was', 'reports were')} made in the last 12 months.`,
+      es: `Se ${plural(s.recent, 'hizo', 'hicieron')} ${s.recent} ${plural(s.recent, 'reporte', 'reportes')} en los últimos 12 meses.`,
     }
   }
   const item = (n: number, en: string, es: string): Bilingual => ({
@@ -178,7 +178,16 @@ export function sentenceBank(s: Spot): Partial<Record<SentenceId, Bilingual>> {
     es: `${n} ${plural(n, 'reporte menciona', 'reportes mencionan')} ${es}.`,
   })
   if (s.items.tires > 0) bank.tires = item(s.items.tires, 'tires', 'llantas')
-  if (bulky > 0) bank.bulky = item(bulky, 'furniture or appliances', 'muebles o electrodomésticos')
+  // Furniture and appliances are counted per category, and one report can mention both, so their
+  // sum is not a number of reports. Each count is stated on its own.
+  const { furniture: f, appliances: a } = s.items
+  if (f > 0 && a > 0) {
+    bank.bulky = {
+      en: `${f} ${plural(f, 'report mentions', 'reports mention')} furniture, and ${a} ${plural(a, 'mentions', 'mention')} appliances.`,
+      es: `${f} ${plural(f, 'reporte menciona', 'reportes mencionan')} muebles, y ${a} ${plural(a, 'menciona', 'mencionan')} electrodomésticos.`,
+    }
+  } else if (f > 0) bank.bulky = item(f, 'furniture', 'muebles')
+  else if (a > 0) bank.bulky = item(a, 'appliances', 'electrodomésticos')
   if (s.items.bags > 0) bank.bags = item(s.items.bags, 'bags of trash', 'bolsas de basura')
   if (s.items.construction > 0) bank.construction = item(s.items.construction, 'construction debris', 'escombros de construcción')
   if (tips.bulkPickup) {

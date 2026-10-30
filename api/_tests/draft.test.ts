@@ -144,11 +144,31 @@ describe('sentenceBank', () => {
     expect(bank.where!.en).toBe('Dumping keeps coming back at Plus Code 865QRCC9+23, in council district 5.')
     expect(bank.where!.es).toBe('La basura tirada sigue apareciendo en el Plus Code 865QRCC9+23, en el distrito 5.')
     expect(bank.total!.en).toBe('It has been reported 57 times since 2021.')
-    expect(bank.bulky!.es).toBe('12 reportes mencionan muebles o electrodomésticos.')
+    expect(bank.bulky!.en).toBe('9 reports mention furniture, and 3 mention appliances.')
+    expect(bank.bulky!.es).toBe('9 reportes mencionan muebles, y 3 mencionan electrodomésticos.')
     const one = sentenceBank({ ...SPOT, district: null, recent: 1, items: { ...SPOT.items, construction: 1 } })
     expect(one.where!.en).toBe('Dumping keeps coming back at Plus Code 865QRCC9+23.')
     expect(one.construction!.en).toBe('1 report mentions construction debris.')
-    expect(one.recent!.es).toBe('1 de esos reportes llegó en los últimos 12 meses.')
+    expect(one.recent!.en).toBe('1 report was made in the last 12 months.')
+    expect(one.recent!.es).toBe('Se hizo 1 reporte en los últimos 12 meses.')
+  })
+  it('never adds furniture and appliance counts (one report can mention both)', () => {
+    // Codex round 6 reproduction: n 3, furniture 2, appliances 2 once read "4 reports mention furniture or appliances".
+    const spot: Spot = { ...SPOT, n: 3, recent: 1, items: { tires: 0, furniture: 2, appliances: 2, bags: 0, construction: 0 }, treatment: 'cleanup' }
+    const out = composeNotice(spot, ['where', 'total', 'bulky', 'action', 'how_to_report'])
+    expect(out.en).toContain('2 reports mention furniture, and 2 mention appliances.')
+    expect(out.en).not.toContain('4 reports')
+    expect(out.es).not.toMatch(/\b4 reportes/)
+    expect(sentenceBank({ ...spot, items: { ...spot.items, appliances: 0 } }).bulky!.en).toBe('2 reports mention furniture.')
+    expect(sentenceBank({ ...spot, items: { ...spot.items, furniture: 0 } }).bulky!.es).toBe('2 reportes mencionan electrodomésticos.')
+  })
+  it('states the 12-month count on its own, so no order can tie it to an item count', () => {
+    // Codex round 6 reproduction: "1 report mentions tires. 9 of those reports came in the last 12 months."
+    const spot: Spot = { ...SPOT, items: { tires: 1, furniture: 0, appliances: 0, bags: 0, construction: 0 } }
+    const out = composeNotice(spot, ['where', 'tires', 'recent', 'action', 'how_to_report'])
+    expect(out.en).toContain('1 report mentions tires. 9 reports were made in the last 12 months.')
+    expect(out.en).not.toMatch(/those|esos/)
+    expect(out.es).toContain('Se hicieron 9 reportes en los últimos 12 meses.')
   })
   it('turns every treatment code into its fixed sentence in both languages', () => {
     for (const treatment of TREATMENTS) {
@@ -195,7 +215,7 @@ describe('composeNotice', () => {
     expect(out.sentences).toEqual(['where', 'total', 'recent', 'action', 'bags', 'how_to_report'])
     expect(out.en).toBe(
       'Thank you, neighbors. Dumping keeps coming back at Plus Code 865QRCC9+23, in council district 5. ' +
-        'It has been reported 57 times since 2021. 9 of those reports came in the last 12 months. ' +
+        'It has been reported 57 times since 2021. 9 reports were made in the last 12 months. ' +
         'The city is promoting tire amnesty so old tires have a proper place to go. 14 reports mention bags of trash. ' +
         'To report dumping, scan the QR code on the city sign at this spot or report it on the City of Mableton website. ' +
         'Thank you for helping keep this area clean.',
