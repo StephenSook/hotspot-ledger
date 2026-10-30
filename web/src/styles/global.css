@@ -198,6 +198,8 @@ table.t td.num { text-align: right; font-family: var(--font-mono); color: var(--
   .page { position: relative; min-height: 100%; }
   .bar a { font-size: 12px; }
   .bar .clock { display: none; }
+  /* Paired panels of prose (Evidence) stack on a phone; small paired inputs keep two columns. */
+  .grid2-wide { grid-template-columns: 1fr; }
 }
 
 /* ---------- printable notice: a white letter-size sheet on screen and on paper ---------- */

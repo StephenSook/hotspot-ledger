@@ -18,7 +18,7 @@ export default function Evidence({ data }: { data: LedgerData }) {
           <p className="dim">Data refreshed {dateLabel(meta.generated_at)}. Code, tests and the pipeline: <a href={REPO}>{REPO.replace('https://', '')}</a>.</p>
         </Reveal>
 
-        <div className="grid2" style={{ gap: 14 }}>
+        <div className="grid2 grid2-wide" style={{ gap: 14 }}>
           <Frame className="stack" label="Numbers">
             <span className="lbl-w">The numbers</span>
             <table className="t">
@@ -58,7 +58,7 @@ export default function Evidence({ data }: { data: LedgerData }) {
           </div>
         </div>
 
-        <div className="grid2" style={{ gap: 14 }}>
+        <div className="grid2 grid2-wide" style={{ gap: 14 }}>
           <Frame className="stack" label="Privacy">
             <span className="lbl-w">Privacy and safety rules the code enforces</span>
             <ul style={{ margin: 0, paddingLeft: 16, fontSize: 13 }} className="stack">
