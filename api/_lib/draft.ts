@@ -163,7 +163,15 @@ const STREET_SUFFIX =
   'St|Street|Rd|Road|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Hwy|Highway|Cir|Circle|Pl|Place|Trl|Trail|Ter|Terrace'
 // "12 Main St", "4 Old Powder Springs Road": a number, capitalized words, a street suffix.
 const STREET_ADDRESS = new RegExp(`\\b\\d+\\s+(?:[A-Z][\\w'.-]*\\s+){1,4}(?:${STREET_SUFFIX})\\b`)
-const SPANISH_STREET = /\b(?:Calle|Avenida|Carretera|Camino)\s+[A-Z0-9]/
+// Any capitalization ("12 main street", "12 MAIN STREET"), with only the suffixes that are not also
+// common words, so "reported 12 times at this place" still passes.
+const STREET_ADDRESS_ANY_CASE = new RegExp(
+  `\\b\\d+\\s+(?:[a-z][\\w'.-]*\\s+){1,4}(?:street|st|road|rd|avenue|ave|boulevard|blvd|drive|dr|lane|ln|parkway|pkwy|highway|hwy|circle|cir|terrace|trail|trl)\\b`,
+  'i',
+)
+// "Calle Mayor", "calle Mayor", "CALLE MAYOR": the street word in any case, then a name or number.
+// "la calle es" (the street, in a sentence) is not a name and passes.
+const SPANISH_STREET_NAME = /\b(?:[Cc]alle|[Aa]venida|[Cc]arretera|[Cc]amino|CALLE|AVENIDA|CARRETERA|CAMINO)\s+[A-Z0-9]/
 // Any Plus Code other than the spot's own would place the notice somewhere else.
 const ANY_PLUS_CODE = /[23456789CFGHJMPQRVWX]{4,8}\+/i
 
@@ -173,7 +181,7 @@ export function unsafeNoticeReason(text: string, plusCode: string): string | nul
   if (DIGIT_RUN.test(withoutCode)) return 'number with three or more digits'
   if (ANY_PLUS_CODE.test(withoutCode)) return 'different Plus Code'
   if (PLATE_WORDS.test(text)) return 'license plate wording'
-  if (STREET_ADDRESS.test(text) || SPANISH_STREET.test(text)) return 'street address'
+  if (STREET_ADDRESS.test(text) || STREET_ADDRESS_ANY_CASE.test(text) || SPANISH_STREET_NAME.test(text)) return 'street address'
   return null
 }
 
