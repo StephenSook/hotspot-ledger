@@ -42,6 +42,7 @@ test('hiding the most active account changes the spot list', async ({ page }) =>
 
 test('plan: approval stays locked until the owner of the ground is confirmed', async ({ page }) => {
   await page.goto('/#/plan')
+  await expect(page.getByText(/0 approved \/ \d+/)).toBeVisible({ timeout: 45_000 })
   const approve = page.getByRole('button', { name: 'Approve', exact: true }).first()
   await expect(approve).toBeDisabled()
   await page.getByLabel(/who owns the ground/i).first().selectOption('city')
