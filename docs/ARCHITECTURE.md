@@ -8,7 +8,7 @@ learning guides and the pitch must agree with it.
 
 ## One sentence
 
-A nightly Python pipeline turns Cobb County's public SeeClickFix reports into a measured ledger of
+A Python pipeline, run by a maintainer, turns Cobb County's public SeeClickFix reports into a measured ledger of
 where dumping keeps coming back and where it is likely next; a static web app shows that ledger in
 3D and turns it into a weekly plan a staff member approves; small serverless functions handle the
 two jobs that need a server (route ordering and Gemini drafting), and nothing identifies a person.
@@ -16,7 +16,7 @@ two jobs that need a server (route ordering and Gemini drafting), and nothing id
 ## System map
 
 ```
-                 GitHub Actions (nightly + on push)                      Vercel (free Hobby plan)
+                 Maintainer's machine (pipeline)                          Vercel
  ┌──────────────────────────────────────────────────────┐   ┌──────────────────────────────────────────┐
  │ pipeline/  (Python 3.12, uv)                          │   │ web/  (Vite + React + TypeScript)         │
  │  1 fetch    SeeClickFix API v2, 20 req/min, cached    │   │  deck.gl 3D map, no third-party tiles     │
@@ -38,7 +38,9 @@ two jobs that need a server (route ordering and Gemini drafting), and nothing id
 1. **Fetch.** `pipeline/fetch_scf.py` pages through `https://seeclickfix.com/api/v2/issues` for the
    city's bounding box, at most 20 requests a minute, with a User-Agent that names the project.
    Every response is content-checked (JSON with an `issues` array) so an error page can never be
-   saved as data. Reporter IDs are replaced by a salted hash the moment they arrive.
+   saved as data. Reporter IDs become keyed HMAC-SHA256 pseudonyms the moment they arrive; the
+   32-byte key is generated locally, kept in the private cache with 0600 permissions, never
+   committed, and the pseudonyms never leave the pipeline.
 2. **Clip.** Point-in-polygon against Cobb County's official Mableton city-limit polygon. The
    SeeClickFix "Mableton" place tag misses about 35% of in-city reports, so it is never used.
 3. **Cells.** Each report goes into a ~150 m grid cell (0.00135° latitude × 0.0016° longitude).
@@ -54,8 +56,18 @@ two jobs that need a server (route ordering and Gemini drafting), and nothing id
    renter share (ACS via Google Data Commons); distance to the nearest other past dumping cell.
    Trained on 2021-2025 only, tested on the cells that first got a dumping report in 2026, with
    spatial cross-fitting, single-feature baselines and shuffled-label nulls.
-6. **Export.** Only aggregates leave the pipeline: cell centroids and counts, metrics, model
+6. **Export.** Only aggregates leave the pipeline: cell centers and counts, metrics, model
    evaluation and per-cell scores. No report text, no addresses, no reporter IDs, no photos.
+   - Every spot is drawn at the center of its ~150 m cell, never at a report's location.
+   - Per-year counts, item mix, first year, last month and the without-top-account count are
+     published only for hotspots (3+ reports). A cell with 1 or 2 reports publishes a count only,
+     so one report can never be traced to a date or an item.
+   - Street labels are the nearest named roads in OpenStreetMap (up to two, joined with "&"),
+     never text from a report.
+   - An allow-list schema validator (`validate_cells`) rejects any extra field, any coordinate that
+     is not a cell center, any free-text street label and any detail on a small cell.
+   - A second guard (`privacy_guard`) scans every export for reporter pseudonyms, report text
+     keys and address patterns, and names the file without echoing the value.
 7. **Serve.** The web app loads the JSON and draws everything client-side.
 
 ## Front end
@@ -93,7 +105,7 @@ says so plainly. Nothing is faked.
 | Rule | Where |
 |---|---|
 | Public data only | pipeline fetches only public APIs |
-| No personal data in public output | pytest guard fails the build if an export contains a reporter hash, description text or an address |
+| No personal data in public output | `validate_cells` and `privacy_guard` run on every export and in pytest; either one fails the build |
 | No resident ever talks to free-tier Gemini | Gemini calls exist only behind staff actions; text sent is aggregate facts; photos are face-blurred on device first |
 | Human in the loop | Notices and plans are drafts until a person approves them |
 | No license-plate reading | no LPR code exists; the camera page detects objects and people as boxes only |
@@ -105,13 +117,22 @@ Yggdrasil Decision Forests, MediaPipe Tasks (face detector, object detector), Ge
 (`gemini-3.8-flash`, `gemini-3.5-flash-lite`), Google OR-Tools, Google Data Commons, Plus Codes
 (Open Location Code) on every spot.
 
-## Testing and CI (GitHub Actions)
+## Testing and CI (GitHub Actions, `.github/workflows/ci.yml`)
 
-- `pipeline`: ruff, pytest (privacy guards, schema, metric sanity, model must beat the
-  near-old-hotspots baseline on the holdout).
-- `web`: eslint, `tsc --noEmit`, vitest (planner rules, formatting), `vite build`,
-  Playwright end-to-end with an axe accessibility scan on every page.
-- `deployed`: a smoke test against the live URL after each deploy.
+- `pipeline`: ruff check, ruff format --check, pytest (privacy guards, schema, metric sanity,
+  model must beat the near-old-hotspots baseline on the holdout).
+- `web`: oxlint, `tsgo` typecheck, vitest (planner rules, CSV safety, camera analysis),
+  `vite build`, Playwright end-to-end with an axe accessibility scan on every page.
+- `api`: pytest for the OR-Tools route, vitest for the Gemini and staff-gate functions.
+- The same Playwright suite runs against the live site with `BASE_URL=<url> pnpm e2e`.
+
+## Data refresh
+
+The maintainer runs `uv run python -m hotspot.cli --fetch` locally and commits the aggregate JSON.
+There is deliberately no scheduled refresh in GitHub Actions: it would have to keep the raw
+reports (reporter IDs, descriptions) in an Actions cache, and caches are readable by other
+workflow runs in the repository. Raw data stays on the maintainer's machine in the gitignored
+`pipeline/cache/`.
 
 ## Known limits (said out loud)
 

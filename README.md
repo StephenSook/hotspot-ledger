@@ -4,7 +4,7 @@
 
 Built for the Georgia 311 Challenge 2026 (Track 3, Tiny Desk, Civic Style) by Stephen Sookra, Khadim Drame and Chris, GDG on Campus at Kennesaw State University.
 
-- **Live app:** _deployment URL added after the first deploy_
+- **Live app:** https://hotspot-ledger-web.vercel.app
 - **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## What it measures, on the city's own public data
@@ -42,13 +42,18 @@ cd pipeline && uv sync --group dev && uv run python -m hotspot.cli && uv run pyt
 # web
 cd web && pnpm install && pnpm dev          # http://localhost:5173
 pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e
+
+# api (from the repo root)
+uv run --with pytest --with-requirements requirements.txt pytest -q api/_tests
 ```
 
-Gemini features need `GEMINI_API_KEY` (a free Google AI Studio key from a project with **no billing**) set as a server environment variable. Without it those two functions answer `503 gemini_not_configured` and the app says so; everything else works.
+Staff features (Gemini drafts and the photo check) need two server environment variables: `STAFF_TOKEN`, a shared secret staff type into the Plan page, and `GEMINI_API_KEY` (a free Google AI Studio key from a project with **no billing**) Without them those two functions answer `503` (`staff_auth_not_configured` or `gemini_not_configured`) and the app says so; everything else works.
 
 ## Privacy and data rules
 
 - Public data only. Published files are aggregates: no report text, no addresses, no reporter identifiers, no photos. A test fails the build otherwise.
+- Spots sit at the center of a ~150 m cell, never at a report's location. Spots with fewer than 3 reports publish only a count. Street names come from OpenStreetMap, never from report text.
+- Reporter IDs become keyed pseudonyms inside the pipeline and never leave it. Raw reports stay in the gitignored local cache; there is no scheduled refresh in CI.
 - No license-plate reading anywhere. The camera page runs on the device and sees people and vehicles as boxes.
 - Field photos are face-blurred on the device before they leave it.
 - Gemini is used only behind staff actions, because free-tier terms bar services likely to be used by people under 18.
