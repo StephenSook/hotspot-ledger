@@ -1,0 +1,48 @@
+name: Data refresh
+
+# Pulls new public SeeClickFix reports incrementally (20 requests a minute at most), recomputes the
+# ledger and the model, runs the privacy tests, and commits the aggregate JSON. Weekly by default:
+# SeeClickFix asks to be contacted before large-scale reuse, so we keep the footprint small.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Restore private report cache
+        uses: actions/cache@v4
+        with:
+          path: pipeline/cache
+          key: scf-cache-${{ github.run_id }}
+          restore-keys: scf-cache-
+      - name: Fetch and rebuild
+        working-directory: pipeline
+        run: |
+          uv sync --group dev
+          uv run python -m hotspot.cli --fetch
+      - name: Privacy and quality tests on the new output
+        working-directory: pipeline
+        run: uv run pytest -q
+      - name: Commit if changed
+        run: |
+          git config user.name "hotspot-ledger-bot"
+          git config user.email "hotspot-ledger-bot@users.noreply.github.com"
+          git add web/public/data
+          if git diff --cached --quiet; then echo "no data change"; exit 0; fi
+          git commit -m "data: weekly SeeClickFix refresh"
+          git push

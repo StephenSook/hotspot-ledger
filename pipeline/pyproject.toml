@@ -1,0 +1,27 @@
+[project]
+name = "hotspot-pipeline"
+version = "0.1.0"
+description = "Hotspot Ledger data pipeline: public SeeClickFix reports to a measured dumping ledger for Mableton, GA"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=2.0",
+  "scipy>=1.13",
+  "scikit-learn>=1.5",
+  "ydf>=0.16",
+  "openlocationcode>=1.0.1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.7"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

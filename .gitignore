@@ -1,0 +1,31 @@
+# dependencies and builds
+node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+*.tsbuildinfo
+.vercel/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# private data: raw SeeClickFix reports (hashed reporter ids, free text) never leave this machine
+pipeline/cache/
+
+# secrets
+.env
+.env.*
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.log
+.vercel
+.env*
+!.env.example

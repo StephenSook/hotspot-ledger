@@ -1,0 +1,471 @@
+/* Camera page. HUD instrument panel on black: hairline frames with corner brackets, small
+   uppercase monospace readouts, one signal color. Uses tokens from src/styles/tokens.css.
+   Every class is prefixed cam- so nothing leaks into the rest of the app. */
+
+.cam-lab {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--ui-14);
+  line-height: 1.45;
+  padding: var(--gutter);
+  min-height: 100%;
+}
+.cam-lab *,
+.cam-lab *::before,
+.cam-lab *::after {
+  box-sizing: border-box;
+}
+
+/* ---------- Type ---------- */
+
+.cam-label,
+.cam-readout,
+.cam-btn,
+.cam-counts dt,
+.cam-legend,
+.cam-cue-kind,
+.cam-cue-conf,
+.cam-rec {
+  font-family: var(--font-mono);
+  font-size: var(--ui-10);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+}
+.cam-label {
+  color: var(--label);
+  margin: 0;
+}
+.cam-readout {
+  color: var(--slate);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cam-title {
+  margin: 2px 0 0;
+  font-size: var(--ui-14);
+  font-weight: 500;
+  color: var(--white);
+  letter-spacing: -0.01em;
+}
+.cam-privacy {
+  margin: 0;
+  max-width: 46ch;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fog);
+  letter-spacing: var(--track);
+}
+.cam-lede {
+  margin: 0;
+  color: var(--white);
+  font-size: var(--ui-14);
+}
+.cam-note {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: var(--ui-12);
+  max-width: 62ch;
+}
+.cam-note--dim {
+  color: var(--slate);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: var(--track);
+}
+
+.cam-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.cam-file {
+  display: none;
+}
+
+/* ---------- Layout ---------- */
+
+.cam-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding-bottom: var(--gutter);
+  border-bottom: 1px solid var(--line);
+}
+.cam-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: var(--gutter);
+  margin-top: var(--gutter);
+}
+.cam-grid--below {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+}
+@media (max-width: 900px) {
+  .cam-grid,
+  .cam-grid--below {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Frame with corner brackets ---------- */
+
+.cam-frame {
+  position: relative;
+  margin-top: var(--gutter);
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  min-width: 0;
+}
+.cam-grid > .cam-frame {
+  margin-top: 0;
+}
+.cam-corner {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: var(--text);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+.cam-corner--tl { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+.cam-corner--tr { top: -1px; right: -1px; border-top-width: 1px; border-right-width: 1px; }
+.cam-corner--bl { bottom: -1px; left: -1px; border-bottom-width: 1px; border-left-width: 1px; }
+.cam-corner--br { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+
+.cam-frame-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+/* ---------- Empty state / drop zone ---------- */
+
+.cam-drop {
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+.cam-drop.is-over {
+  border-color: var(--red);
+}
+.cam-drop.is-over .cam-corner {
+  border-color: var(--red);
+}
+.cam-empty {
+  padding: 32px 8px 24px;
+}
+.cam-empty .cam-btn-row {
+  margin-top: 16px;
+}
+
+/* ---------- Buttons ---------- */
+
+.cam-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cam-btn {
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cam-btn:hover {
+  border-color: var(--text);
+  color: var(--white);
+}
+.cam-btn--signal {
+  border-color: var(--red);
+  color: var(--white);
+}
+.cam-btn--signal:hover {
+  background: var(--red-dim);
+  border-color: var(--red);
+}
+.cam-btn--small {
+  padding: 5px 8px;
+  font-size: var(--ui-10);
+}
+.cam-lab :focus-visible {
+  outline: 2px solid var(--white);
+  outline-offset: 2px;
+}
+
+/* ---------- Player ---------- */
+
+.cam-video-wrap {
+  position: relative;
+  background: #000;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+}
+.cam-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.cam-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.cam-rec {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  color: var(--white);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cam-rec::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: cam-blink 1.2s steps(2, jump-none) infinite;
+}
+@keyframes cam-blink {
+  50% { opacity: 0.2; }
+}
+
+.cam-controls {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+.cam-progress {
+  appearance: none;
+  width: 100%;
+  height: 2px;
+  border: 0;
+  background: var(--line);
+  color: var(--red);
+}
+.cam-progress::-webkit-progress-bar {
+  background: var(--line);
+}
+.cam-progress::-webkit-progress-value {
+  background: var(--red);
+}
+.cam-progress::-moz-progress-bar {
+  background: var(--red);
+}
+.cam-progress-text {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  letter-spacing: var(--track);
+  font-variant-numeric: tabular-nums;
+}
+.cam-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--red);
+  color: var(--white);
+  font-size: var(--ui-12);
+}
+
+/* ---------- Cube ---------- */
+
+.cam-cube {
+  position: relative;
+  height: 440px;
+  border: 1px solid var(--line);
+  background: #000;
+  overflow: hidden;
+  cursor: grab;
+}
+.cam-cube:active {
+  cursor: grabbing;
+}
+.cam-cube--idle {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  cursor: default;
+}
+@media (max-width: 900px) {
+  .cam-cube { height: 340px; }
+}
+.cam-cube-msg {
+  margin: 0;
+  padding: 0 16px;
+  color: var(--slate);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: var(--track);
+  text-align: center;
+}
+.cam-cube-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.cam-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--label);
+}
+.cam-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cam-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+}
+.cam-swatch--vehicle { background: #c8c8c8; }
+.cam-swatch--person { background: #4f78a8; }
+.cam-swatch--object { background: var(--red); }
+.cam-swatch--cue {
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--red);
+  border-radius: 50%;
+  background: transparent;
+}
+
+/* ---------- Counts ---------- */
+
+.cam-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 0;
+}
+.cam-counts div {
+  min-width: 64px;
+}
+.cam-counts dt {
+  color: var(--label);
+}
+.cam-counts dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  color: var(--white);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track);
+}
+.cam-counts dd.is-signal {
+  color: var(--red);
+}
+.cam-counts--wide {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+
+/* ---------- Cues list ---------- */
+
+.cam-cues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.cam-cues li {
+  border-bottom: 1px solid var(--line);
+}
+.cam-cue {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 44px 112px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 6px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ui-12);
+  text-align: left;
+  cursor: pointer;
+}
+.cam-cue:hover {
+  background: var(--panel);
+  color: var(--white);
+}
+.cam-cue[aria-pressed='true'] {
+  border-left-color: var(--red);
+  background: var(--panel);
+  color: var(--white);
+}
+.cam-cue-time {
+  font-family: var(--font-mono);
+  font-size: var(--ui-12);
+  color: var(--white);
+  font-variant-numeric: tabular-nums;
+}
+.cam-cue-kind {
+  color: var(--slate);
+}
+.cam-cue--left-behind .cam-cue-kind {
+  color: var(--red);
+}
+.cam-cue-what {
+  min-width: 0;
+}
+.cam-cue-conf {
+  color: var(--label);
+}
+@media (max-width: 560px) {
+  .cam-cue {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .cam-cue-what,
+  .cam-cue-conf {
+    grid-column: 2;
+  }
+}
+
+/* ---------- Reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .cam-rec::before {
+    animation: none;
+  }
+  .cam-lab * {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

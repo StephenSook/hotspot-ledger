@@ -1,0 +1,31 @@
+/* Hotspot Ledger design tokens.
+   HUD-style instrument panel on black: thin lines, small uppercase readouts with tight tracking,
+   one signal color. Inspired by a portfolio we admire; every rule here is our own. */
+:root {
+  --bg: #000000;
+  --panel: #0a0a0a;
+  --text: #c8c8c8;
+  --white: #ffffff;
+  --fog: #afafaf;
+  --slate: #8a8a8a;      /* secondary text that still passes WCAG AA on black (5.6:1) */
+  --label: #7a7a7a;      /* small labels, 4.6:1 on black */
+  --line: #2a2a2a;       /* hairlines and frames */
+  --line-strong: #3d3d3d;
+  --bar: #393939;        /* bottom bar */
+  --red: #e8271c;        /* signal: dumping, risk, alerts */
+  --red-dim: rgba(232, 39, 28, 0.35);
+  --amber: #f2b705;      /* the pitch document's road-sign yellow, used once: approvals */
+  --ok: #8fd18f;
+
+  --font-sans: 'Geist Sans', 'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  --track: -0.04em;      /* tight tracking on uppercase labels, the reference's signature */
+  --ui-10: 10px;
+  --ui-12: 12px;
+  --ui-14: 14px;
+
+  --ease: cubic-bezier(0.625, 0.05, 0, 1);
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --bar-h: 28px;
+  --gutter: 10px;
+}
