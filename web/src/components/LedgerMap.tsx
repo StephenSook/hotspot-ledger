@@ -23,6 +23,7 @@ export interface LedgerMapProps {
   route?: LngLat[]
   onSelect?: (c: Cell | null) => void
   pitch?: number
+  lastYear?: number
 }
 
 function center(map: MapLayers): [number, number] {
@@ -35,7 +36,7 @@ function center(map: MapLayers): [number, number] {
 
 
 export default function LedgerMap(props: LedgerMapProps) {
-  const { map, cells, risk = [], mode, hideTop = false, throughYear, selectedId, highlightIds = [], route, onSelect, pitch = 52 } = props
+  const { map, cells, risk = [], mode, hideTop = false, throughYear, selectedId, highlightIds = [], route, onSelect, pitch = 52, lastYear } = props
   const [lng, lat] = useMemo(() => center(map), [map])
   const [viewState, setViewState] = useState<MapViewState>({ longitude: lng, latitude: lat - 0.012, zoom: 12.35, pitch, bearing: -14 })
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null)
@@ -63,7 +64,7 @@ export default function LedgerMap(props: LedgerMapProps) {
 
   const dynamic = useMemo(() => {
     const out = []
-    const counted = cells.map((c) => ({ c, v: cellCount(c, hideTop, throughYear) }))
+    const counted = cells.map((c) => ({ c, v: cellCount(c, hideTop, throughYear, lastYear) }))
     if (mode === 'ledger' || mode === 'plan') {
       out.push(new ScatterplotLayer<{ c: Cell; v: number }>({
         id: 'minor-cells', data: counted.filter((d) => d.v > 0 && d.v < 3),
@@ -103,7 +104,7 @@ export default function LedgerMap(props: LedgerMapProps) {
       }
     }
     return out
-  }, [cells, risk, mode, hideTop, throughYear, selectedId, highlight, highlightIds, route])
+  }, [cells, risk, mode, hideTop, throughYear, lastYear, selectedId, highlight, highlightIds, route])
 
   function describe(info: PickingInfo): string | null {
     const o = info.object as { c?: Cell; v?: number; risk?: number; district?: string | null; n?: number; street?: string } | undefined

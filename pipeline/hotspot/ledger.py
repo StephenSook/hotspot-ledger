@@ -39,7 +39,6 @@ class Report:
     reporter: str
     items: tuple[str, ...]
     has_photo: bool
-    street: str = ""
     key: tuple[int, int] = field(init=False)
 
     def __post_init__(self):
@@ -48,26 +47,6 @@ class Report:
 
 def items_in(text: str) -> tuple[str, ...]:
     return tuple(k for k, rx in ITEM_RE.items() if rx.search(text or ""))
-
-
-STREET_SUFFIX = re.compile(r"\b(St|Rd|Dr|Ave|Ln|Cir|Ct|Hwy|Way|Pkwy|Blvd|Trl|Pl|Ter|Pt)\b\.?", re.I)
-
-
-def street_of(address: str) -> str:
-    """Street name only: house numbers, city, state and ZIP are dropped. Public geography, not a person."""
-    s = (address or "").split(",")[0]
-    s = re.split(r"\s+(?:Mableton|Austell|Smyrna|Atlanta|Marietta|Powder Springs|GA|Georgia)\b", s, flags=re.I)[0]
-    s = re.sub(r"^[\d\-a-zA-Z]*\d[\d\-a-zA-Z]*\s+", "", s.strip())  # leading house number like 1234 or 12-B
-    s = re.sub(r"\s+", " ", s).strip()
-    if not s or any(ch.isdigit() for ch in s.split(" ")[0]) or not STREET_SUFFIX.search(s):
-        return ""
-    words = []
-    for w in s.split(" "):
-        words.append(w.upper() if w.upper() in DIRECTIONS else w if w.isupper() and len(w) <= 3 else w.capitalize())
-    return " ".join(words)[:48]
-
-
-DIRECTIONS = {"SW", "SE", "NW", "NE", "N", "S", "E", "W", "&"}
 
 
 def load_reports(path=ISSUES_CACHE) -> tuple[list[Report], int]:
@@ -94,7 +73,6 @@ def load_reports(path=ISSUES_CACHE) -> tuple[list[Report], int]:
                 reporter=i.get("reporter_hash", ""),
                 items=items_in(f"{i.get('summary') or ''} {i.get('description') or ''}"),
                 has_photo=bool(media.get("image_full")),
-                street=street_of(i.get("address") or ""),
             )
         )
     dump.sort(key=lambda r: r.created)
@@ -162,7 +140,6 @@ def build(reports: list[Report], total_in_city: int, now: dt.datetime) -> dict:
                 "n_others": 0,
                 "years": collections.Counter(),
                 "items": collections.Counter(),
-                "streets": collections.Counter(),
                 "years_others": collections.Counter(),
                 "first": r.created,
                 "last": r.created,
@@ -178,8 +155,6 @@ def build(reports: list[Report], total_in_city: int, now: dt.datetime) -> dict:
             c["years_others"][r.created.year] += 1
         for it in r.items:
             c["items"][it] += 1
-        if r.street:
-            c["streets"][r.street] += 1
         c["first"] = min(c["first"], r.created)
         c["last"] = max(c["last"], r.created)
         c["photos"] += r.has_photo
@@ -191,30 +166,32 @@ def build(reports: list[Report], total_in_city: int, now: dt.datetime) -> dict:
     pops = {name: pop for name, pop, _ in districts()}
     twelve_months_ago = now - dt.timedelta(days=365)
 
+    # Public rows use the CELL CENTER, never a report location. Detail that could single out one
+    # report (exact dates, per-year counts, the account split, item mentions) is published only
+    # for recurring spots with at least HOTSPOT_MIN_REPORTS reports.
     cell_rows = []
     for k, c in cells.items():
-        lat, lng = c["lat_sum"] / c["n"], c["lng_sum"] / c["n"]
         clat, clng = cell_center(k)
+        is_hot = c["n"] >= HOTSPOT_MIN_REPORTS
+        district = district_of(clng, clat) or district_of(c["lng_sum"] / c["n"], c["lat_sum"] / c["n"])
         cell_rows.append(
             {
                 "id": f"{k[0]}_{k[1]}",
-                "lat": round(lat, 6),
-                "lng": round(lng, 6),
-                "cell_lat": round(clat, 6),
-                "cell_lng": round(clng, 6),
-                "street": c["streets"].most_common(1)[0][0] if c["streets"] else "",
+                "lat": round(clat, 6),
+                "lng": round(clng, 6),
+                "street": "",  # filled from OpenStreetMap road names, never from report addresses
                 "n": c["n"],
-                "n_others": c["n_others"],
-                "hotspot": c["n"] >= HOTSPOT_MIN_REPORTS,
-                "years": {str(y): c["years"].get(y, 0) for y in years},
-                "years_others": {str(y): c["years_others"].get(y, 0) for y in years},
-                "items": {it: c["items"].get(it, 0) for it in ITEM_PATTERNS},
-                "first": c["first"].date().isoformat(),
-                "last": c["last"].date().isoformat(),
+                "hotspot": is_hot,
+                "n_others": c["n_others"] if is_hot else None,
+                "years": {str(y): c["years"].get(y, 0) for y in years} if is_hot else None,
+                "years_others": {str(y): c["years_others"].get(y, 0) for y in years} if is_hot else None,
+                "items": {it: c["items"].get(it, 0) for it in ITEM_PATTERNS} if is_hot else None,
+                "first_year": c["first"].year if is_hot else None,
+                "last_month": c["last"].strftime("%Y-%m") if is_hot else None,
                 "last_12_months": sum(1 for r in reports if r.key == k and r.created >= twelve_months_ago),
                 "photos": c["photos"],
-                "district": district_of(lng, lat),
-                "plus_code": olc.encode(lat, lng, 10),
+                "district": district,
+                "plus_code": olc.encode(clat, clng, 10),
             }
         )
     cell_rows.sort(key=lambda c: -c["n"])

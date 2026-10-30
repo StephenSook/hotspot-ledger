@@ -4,10 +4,10 @@ import { earliestAmnesty, isoWeek, propose, starReimbursable, weeklyPlan } from 
 
 function cell(over: Partial<Cell> = {}): Cell {
   return {
-    id: '1_1', lat: 33.82, lng: -84.58, cell_lat: 33.82, cell_lng: -84.58, street: 'Front St SW',
+    id: '1_1', lat: 33.82, lng: -84.58, street: 'Front St SW',
     n: 12, n_others: 4, hotspot: true, years: { '2021': 2, '2026': 3 }, years_others: { '2021': 1, '2026': 1 },
     items: { tires: 0, furniture: 0, appliances: 0, bags: 1, construction: 0 },
-    first: '2021-02-01', last: '2026-10-01', last_12_months: 3, photos: 10, district: '3',
+    first_year: 2021, last_month: '2026-10', last_12_months: 3, photos: 10, district: '3',
     plus_code: '865QRC9C+XX', risk: 0.5,
     owner_hint: { owner: 'confirm', label: 'Local road or private parcel: confirm the owner' },
     context: { dead_ends_within_250: 0, d_major_m: 40, road_m_within_150: 900, streetlight_out_within_300: 0 },

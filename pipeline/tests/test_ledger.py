@@ -35,18 +35,56 @@ def test_city_polygon_contains_front_st_and_not_downtown_atlanta():
     assert not in_city(-84.3880, 33.7490)  # downtown Atlanta
 
 
+def test_short_street_names_from_openstreetmap():
+    from hotspot.mapdata import short_name
+
+    assert short_name("Front Street Southwest") == "Front St SW"
+    assert short_name("Veterans Memorial Highway Southwest") == "Veterans Memorial Hwy SW"
+
+
+def good_cell(**over):
+    cell = {
+        "id": "25052_-52864",
+        "lat": round(25052 * 0.00135, 6),
+        "lng": round(-52864 * 0.0016, 6),
+        "street": "Front St SW",
+        "n": 1,
+        "hotspot": False,
+        "n_others": None,
+        "years": None,
+        "years_others": None,
+        "items": None,
+        "first_year": None,
+        "last_month": None,
+        "last_12_months": 1,
+        "photos": 1,
+        "district": "5",
+        "plus_code": "865QRCC9+23",
+        "risk": 0.1,
+        "owner_hint": {"owner": "confirm", "label": "x"},
+        "context": {},
+    }
+    cell.update(over)
+    return cell
+
+
+def test_validate_cells_accepts_a_clean_small_cell():
+    cli.validate_cells([good_cell()])
+
+
 @pytest.mark.parametrize(
-    "address,street",
+    "over",
     [
-        ("5300 Front St SW Mableton GA 30126, USA", "Front St SW"),
-        ("Fulton Industrial Blvd SW Atlanta, GA", "Fulton Industrial Blvd SW"),
-        ("6420 dodgen rd sw, Mableton", "Dodgen Rd SW"),
-        ("Unknown location", ""),
-        ("", ""),
+        {"lat": 33.820061},  # an exact report location instead of the cell center
+        {"years": {"2026": 1}},  # detail on a cell with fewer than 3 reports
+        {"street": "Example Cemetery 1234 Fake St, Apt #2"},  # free text
+        {"plus_code": "not a code"},
+        {"address": "x"},  # any key outside the allow-list
     ],
 )
-def test_street_of_drops_house_numbers_and_cities(address, street):
-    assert ledger.street_of(address) == street
+def test_validate_cells_rejects(over):
+    with pytest.raises(ValueError):
+        cli.validate_cells([good_cell(**over)])
 
 
 def test_item_patterns():
@@ -100,7 +138,9 @@ def test_published_files_carry_no_identifying_fields():
         for bad in ('"reporter', '"description"', '"summary"', '"address"', '"media"', "seeclickfix.com/rails"):
             assert bad not in text, f"{bad} leaked into {name}"
     cells = json.loads((OUT / "cells.json").read_text())
-    assert all(set(c) >= {"id", "lat", "lng", "n", "plus_code", "owner_hint", "context"} for c in cells)
+    cli.validate_cells(cells)  # published file must pass the same allow-list
+    small = [c for c in cells if not c["hotspot"]]
+    assert small and all(c["years"] is None and c["last_month"] is None for c in small)
 
 
 @pytest.mark.skipif(not (OUT / "model.json").exists(), reason="run the pipeline first")

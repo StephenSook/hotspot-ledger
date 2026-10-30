@@ -14,7 +14,7 @@ export default function Evidence({ data }: { data: LedgerData }) {
         <Reveal>
           <span className="lbl-w">Evidence</span>
           <h1>Every number on this site, and where it came from.</h1>
-          <p className="dim">Data refreshed {dateLabel(meta.generated_at)}. Code, tests and the pipeline are public at <a href={REPO}>{REPO.replace('https://', '')}</a>.</p>
+          <p className="dim">Data refreshed {dateLabel(meta.generated_at)}. Code, tests and the pipeline: <a href={REPO}>{REPO.replace('https://', '')}</a>.</p>
         </Reveal>
 
         <div className="grid2" style={{ gap: 14 }}>
@@ -62,6 +62,7 @@ export default function Evidence({ data }: { data: LedgerData }) {
             <span className="lbl-w">Privacy and safety rules the code enforces</span>
             <ul style={{ margin: 0, paddingLeft: 16, fontSize: 13 }} className="stack">
               <li>{meta.privacy} A test fails the build if anything identifying reaches a public file.</li>
+              <li>Street names come from OpenStreetMap, never from report text. Reporter IDs become keyed pseudonyms inside the pipeline and never leave it.</li>
               <li>No license-plate reading anywhere. The camera page sees people and vehicles as boxes, on the device.</li>
               <li>Field photos are face-blurred on the device before they leave it.</li>
               <li>Gemini runs only behind staff actions on free-tier terms, which bar services likely used by people under 18.</li>

@@ -31,13 +31,13 @@ export default function Ledger({ data, onAddToPlan, pinned }: { data: LedgerData
 
   const ranked = useMemo(
     () => cells
-      .map((c) => ({ c, v: cellCount(c, hideTop, through) }))
+      .map((c) => ({ c, v: cellCount(c, hideTop, through, lastYear) }))
       .filter((d) => d.v >= 3)
       .sort((a, b) => b.v - a.v),
-    [cells, hideTop, through],
+    [cells, hideTop, through, lastYear],
   )
   const shown = ranked.reduce((s, d) => s + d.v, 0)
-  const total = cells.reduce((s, c) => s + cellCount(c, hideTop, through), 0)
+  const total = cells.reduce((s, c) => s + cellCount(c, hideTop, through, lastYear), 0)
   const yearly = hideTop ? m.yearly_without_top_account : m.yearly
   const maxYear = Math.max(...Object.values(m.yearly))
   const r84 = m.return_rates['84']
@@ -45,7 +45,7 @@ export default function Ledger({ data, onAddToPlan, pinned }: { data: LedgerData
 
   return (
     <div className="page">
-      <LedgerMap map={map} cells={cells} mode="ledger" hideTop={hideTop} throughYear={through} selectedId={selected?.id} onSelect={setSelected} />
+      <LedgerMap map={map} cells={cells} mode="ledger" hideTop={hideTop} throughYear={through} lastYear={lastYear} selectedId={selected?.id} onSelect={setSelected} />
 
       <div className="hud hud-left stack">
         <Frame className="stack" label="Summary">

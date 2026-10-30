@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 from . import fetch_scf, ledger, mapdata, model, predictors
-from .config import ISSUES_CACHE, OUT, START_YEAR
+from .config import ISSUES_CACHE, LAT_STEP, LNG_STEP, OUT, START_YEAR
 from .geo import district_of, in_city
 
 FORBIDDEN_KEYS = {
@@ -59,7 +59,47 @@ def privacy_guard(obj, reporter_hashes: set[str], path="$") -> None:
         if obj in reporter_hashes:
             raise ValueError(f"privacy guard: reporter hash at {path}")
         if re.search(r"\b\d{2,5}\s+\w+\s+(st|rd|dr|ave|ln|cir|ct|hwy|way|pkwy|blvd)\b", obj, re.I):
-            raise ValueError(f"privacy guard: something address-like at {path}: {obj[:40]!r}")
+            raise ValueError(f"privacy guard: something address-like at {path}")
+
+
+CELL_KEYS = {
+    "id",
+    "lat",
+    "lng",
+    "street",
+    "n",
+    "hotspot",
+    "n_others",
+    "years",
+    "years_others",
+    "items",
+    "first_year",
+    "last_month",
+    "last_12_months",
+    "photos",
+    "district",
+    "plus_code",
+    "risk",
+    "owner_hint",
+    "context",
+}
+DETAIL_KEYS = ("n_others", "years", "years_others", "items", "first_year", "last_month")
+STREET_OK = re.compile(r"^[A-Za-z0-9 .&'/-]{0,48}$")
+PLUS_OK = re.compile(r"^[23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2}$")
+
+
+def validate_cells(cells: list[dict]) -> None:
+    """Allow-list schema for public cells: exact keys, cell-center coordinates, no detail on small cells."""
+    for c in cells:
+        if set(c) != CELL_KEYS:
+            raise ValueError(f"cell schema: unexpected keys {sorted(set(c) ^ CELL_KEYS)}")
+        a, b = (int(x) for x in c["id"].split("_"))
+        if abs(c["lat"] - a * LAT_STEP) > 1e-5 or abs(c["lng"] - b * LNG_STEP) > 1e-5:
+            raise ValueError(f"cell {c['id']}: coordinates are not the cell center")
+        if not STREET_OK.match(c["street"]) or not PLUS_OK.match(c["plus_code"]):
+            raise ValueError(f"cell {c['id']}: street or plus code outside the allowed pattern")
+        if not c["hotspot"] and any(c[k] is not None for k in DETAIL_KEYS):
+            raise ValueError(f"cell {c['id']}: detail published for a cell with fewer than 3 reports")
 
 
 def write(name: str, obj, reporter_hashes: set[str]) -> int:
@@ -78,6 +118,9 @@ def main(argv=None) -> int:
     if args.fetch:
         print("fetch:", fetch_scf.fetch(), flush=True)
 
+    rekeyed = fetch_scf.rekey_cache()
+    if rekeyed:
+        print(f"rekeyed {rekeyed} cached reporter hashes with the private HMAC key", flush=True)
     now = dt.datetime.now(TZ)
     reports, total = ledger.load_reports()
     if len(reports) < 500:
@@ -141,6 +184,7 @@ def main(argv=None) -> int:
             "streetlight_out_within_300": int(feat_now["streetlight_out_within_300"][g]),
         }
     mapdata.owner_hints(cells, osm_el)
+    mapdata.street_labels(cells, osm_el)
 
     risk_cells = []
     for k in flagged:
@@ -163,7 +207,7 @@ def main(argv=None) -> int:
     built["metrics"]["equity"] = equity
     sizes = {
         "metrics.json": write("metrics.json", built["metrics"], hashes),
-        "cells.json": write("cells.json", cells, hashes),
+        "cells.json": (validate_cells(cells), write("cells.json", cells, hashes))[1],
         "risk.json": write("risk.json", risk_cells, hashes),
         "model.json": write("model.json", evaluation, hashes),
         "map.json": write("map.json", {**mapdata.boundary_layers(), "roads": mapdata.road_layers(osm_el)}, hashes),
@@ -181,7 +225,7 @@ def main(argv=None) -> int:
                     {"name": "OpenStreetMap", "license": "ODbL", "credit": "OpenStreetMap contributors"},
                     {"name": "American Community Survey via Google Data Commons", "license": "public"},
                 ],
-                "privacy": "Aggregates only: no report text, no addresses, no reporter identifiers, no photos.",
+                "privacy": "Aggregates only: no report text, no addresses, no reporter identifiers, no photos. Spots sit at the center of a ~150 m cell, never at a report's location, and spots with fewer than 3 reports publish only a count.",
             },
             hashes,
         ),

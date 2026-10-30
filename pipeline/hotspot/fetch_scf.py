@@ -4,16 +4,19 @@ Data: SeeClickFix API v2, licensed CC BY-NC-SA 3.0 US, attribution to seeclickfi
 The API allows 20 requests a minute. We only fetch issues created since the newest one already
 cached (minus a 30-day overlap to pick up status changes), so a nightly run makes a few requests.
 
-Reporter identity never leaves this module: the reporter object is replaced by a short hash
-(same scheme as the original Oct 29 2026 pull, so old and new rows stay comparable) and a
-guest flag. The cache file is gitignored and never exported.
+Reporter identity never leaves this module: the reporter object is replaced by a keyed
+pseudonym (HMAC-SHA256 with a random key that lives only in the private cache folder, so a
+public reporter ID cannot be hashed and matched offline) and a guest flag. The cache and the
+key are gitignored and never exported or uploaded.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import hmac
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
@@ -26,12 +29,47 @@ STATUSES = "open,acknowledged,closed,archived"
 _last_request = 0.0
 
 
+HASH_KEY = CACHE / "hash_key"
+
+
+def _key() -> bytes:
+    if not HASH_KEY.exists():
+        CACHE.mkdir(parents=True, exist_ok=True)
+        HASH_KEY.write_bytes(os.urandom(32))
+        HASH_KEY.chmod(0o600)
+    return HASH_KEY.read_bytes()
+
+
+def pseudonym(legacy: str) -> str:
+    """Keyed pseudonym of the legacy sha256(id)[:12] digest the first pull stored."""
+    return hmac.new(_key(), legacy.encode(), hashlib.sha256).hexdigest()[:16]
+
+
 def reporter_fields(rep: dict | None) -> dict:
     rep = rep or {}
+    legacy = hashlib.sha256(str(rep.get("id", "none")).encode()).hexdigest()[:12]
     return {
-        "reporter_hash": hashlib.sha256(str(rep.get("id", "none")).encode()).hexdigest()[:12],
+        "reporter_hash": pseudonym(legacy),
         "reporter_is_guest": str(rep.get("name", "")).lower() == "guest" or rep.get("role") == "Guest",
     }
+
+
+def rekey_cache() -> int:
+    """One-time upgrade: replace unkeyed 12-character hashes in the cache with keyed pseudonyms."""
+    if not ISSUES_CACHE.exists():
+        return 0
+    rows = json.loads(ISSUES_CACHE.read_text())
+    changed = 0
+    for r in rows:
+        h = r.get("reporter_hash", "")
+        if len(h) == 12:
+            r["reporter_hash"] = pseudonym(h)
+            changed += 1
+    if changed:
+        tmp = ISSUES_CACHE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(rows))
+        tmp.replace(ISSUES_CACHE)
+    return changed
 
 
 def scrub(issue: dict) -> dict:

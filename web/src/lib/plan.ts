@@ -1,6 +1,7 @@
 // The weekly planner. Deterministic rules, no model: code proposes, a person approves.
 // Each rule cites the evidence that triggered it so staff can see why.
 import type { Cell } from '../data/types'
+import { itemsOf } from './cells'
 
 export type Treatment =
   | 'close_access'
@@ -38,7 +39,7 @@ export function priority(c: Cell): number {
 export function propose(c: Cell): Proposal {
   const reasons: string[] = [`${c.n} dumping reports since 2021, ${c.last_12_months} in the last 12 months`]
   const flags: string[] = []
-  const items = c.items
+  const items = itemsOf(c)
   const bulky = items.furniture + items.appliances
   let treatment: Treatment = 'sign_qr'
   const also: Treatment[] = []

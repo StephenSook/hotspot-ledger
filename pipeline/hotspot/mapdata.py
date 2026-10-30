@@ -125,3 +125,61 @@ def owner_hints(cells: list[dict], osm_elements) -> None:
             if d <= 60:
                 hint = {"owner": "gdot", "label": f"State route {refs[k]}: coordinate with GDOT", "distance_m": round(float(d))}
         c["owner_hint"] = hint
+
+
+ABBREV = {
+    "street": "St",
+    "road": "Rd",
+    "drive": "Dr",
+    "avenue": "Ave",
+    "lane": "Ln",
+    "circle": "Cir",
+    "court": "Ct",
+    "highway": "Hwy",
+    "parkway": "Pkwy",
+    "boulevard": "Blvd",
+    "place": "Pl",
+    "trail": "Trl",
+    "terrace": "Ter",
+    "point": "Pt",
+    "southwest": "SW",
+    "southeast": "SE",
+    "northwest": "NW",
+    "northeast": "NE",
+}
+
+
+def short_name(name: str) -> str:
+    """USPS-style abbreviations for an OpenStreetMap road name."""
+    return " ".join(ABBREV.get(w.lower(), w) for w in name.split())[:48]
+
+
+def street_labels(cells: list[dict], osm_elements, max_m: float = 120.0) -> None:
+    """Label each cell with up to two nearest NAMED roads from OpenStreetMap, never from report text.
+
+    A ~150 m cell often spans an intersection, so a single nearest road can misname the spot
+    (downtown Mableton's busiest cell sits between Church St SW and Front St).
+    """
+    pts, names = [], []
+    for el in osm_elements:
+        t, g = el.get("tags", {}), el.get("geometry") or []
+        name = t.get("name")
+        if "highway" not in t or not name or len(g) < 2 or t["highway"] in ("footway", "path", "cycleway", "steps", "service"):
+            continue
+        for p in g:
+            pts.append(to_xy(p["lon"], p["lat"]))
+            names.append(short_name(name))
+    if not pts:
+        return
+    tree = cKDTree(np.array(pts))
+    for c in cells:
+        dists, idxs = tree.query(to_xy(c["lng"], c["lat"]), k=min(80, len(pts)))
+        found: list[str] = []
+        for d, k in zip(np.atleast_1d(dists), np.atleast_1d(idxs), strict=True):
+            if d > max_m:
+                break
+            if names[k] not in found:
+                found.append(names[k])
+            if len(found) == 2:
+                break
+        c["street"] = " & ".join(found)[:48]

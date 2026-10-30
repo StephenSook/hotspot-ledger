@@ -52,21 +52,25 @@ export interface OwnerHint {
   distance_m?: number
 }
 
+/**
+ * One ~150 m cell. Coordinates are the CELL CENTER, never a report location. Detail that could
+ * single out one report (per-year counts, the account split, item mentions, dates) is published
+ * only for recurring spots (`hotspot`, 3 or more reports) and is null otherwise.
+ */
 export interface Cell {
   id: string
   lat: number
   lng: number
-  cell_lat: number
-  cell_lng: number
+  /** Nearest named road from OpenStreetMap, never from report text. */
   street: string
   n: number
-  n_others: number
   hotspot: boolean
-  years: Record<string, number>
-  years_others: Record<string, number>
-  items: Record<ItemKind, number>
-  first: string
-  last: string
+  n_others: number | null
+  years: Record<string, number> | null
+  years_others: Record<string, number> | null
+  items: Record<ItemKind, number> | null
+  first_year: number | null
+  last_month: string | null
   last_12_months: number
   photos: number
   district: string | null
