@@ -170,9 +170,24 @@ describe('notice output check', () => {
   it('accepts a plain notice that contains the Plus Code and small numbers', () => {
     expect(parseDraft(GOOD_NOTICE, SPOT.plus_code)).toEqual(GOOD_NOTICE)
     expect(unsafeNoticeReason('Reported 57 times in district 5.', SPOT.plus_code)).toBeNull()
-    // Ordinary words that are also street suffixes, and "the street" inside a Spanish sentence.
-    expect(unsafeNoticeReason('Reported 12 times at this place, by the way.', SPOT.plus_code)).toBeNull()
-    expect(unsafeNoticeReason('Tirar basura en la calle es ilegal.', SPOT.plus_code)).toBeNull()
+    // Report counts near street words, ordinary words that are also suffixes, and "the street"
+    // inside Spanish sentences must all pass.
+    for (const ok of [
+      'Reported 12 times at this place, by the way.',
+      'Neighbors reported dumping 12 times on this street.',
+      'There were 9 reports in the last 12 months on this road.',
+      'Please do not drive by and leave trash.',
+      'In district 5 drive slowly and report what you see.',
+      'Tirar basura en la calle es ilegal.',
+      'Mantengamos la calle limpia.',
+      'Se reportó 12 veces en esta calle.',
+      'Hay 9 reportes en la calle y en el camino.',
+      'Gracias por mantener limpia la calle de la ciudad.',
+      GOOD_NOTICE.en,
+      GOOD_NOTICE.es,
+    ]) {
+      expect(unsafeNoticeReason(ok, SPOT.plus_code), ok).toBeNull()
+    }
   })
 
   const unsafe: [string, string, string][] = [
@@ -187,8 +202,18 @@ describe('notice output check', () => {
     ['a lowercase street address', 'Bags were left near 12 main street.', 'street address'],
     ['an all-caps street address', 'NEAR 12 MAIN STREET.', 'street address'],
     ['an all-caps abbreviated address', 'Left at 12 OLD FLOYD RD.', 'street address'],
+    ['a lowercase Way address', 'Bags sit at 12 main way.', 'street address'],
+    ['a Court address', 'Left at 7 oak ct', 'street address'],
+    ['a Place address', 'Near 9 Elm Place.', 'street address'],
+    ['a directional abbreviation', 'Near 12 N. Main St.', 'street address'],
+    ['a number range', 'Near 12-14 Main St.', 'street address'],
+    ['a Saint street', 'Near 12 St. Johns Rd.', 'street address'],
+    ['a suffix word as the name', 'Left at 4 Court Street', 'street address'],
     ['a lowercase Spanish street word', 'Cerca de la calle Mayor.', 'street address'],
+    ['an all-lowercase Spanish street', 'Cerca de la calle mayor.', 'street address'],
     ['an all-caps Spanish street', 'CERCA DE LA CALLE MAYOR.', 'street address'],
+    ['a numbered Spanish street', 'Dejaron bolsas en la calle 5.', 'street address'],
+    ['a Spanish street with de', 'Cerca de la Calle de Alcala.', 'street address'],
     ['license plates', 'The camera will read license plates.', 'license plate'],
     ['placa in Spanish', 'La cámara no lee la placa del carro.', 'license plate'],
     ['a tag number', 'Write down the tag number.', 'license plate'],
@@ -293,12 +318,24 @@ describe('handleDraft', () => {
 
   it.each([
     [{ en: GOOD_NOTICE.en, es: 'Gracias. Dejaron bolsas cerca de la calle Mayor.' }],
+    [{ en: GOOD_NOTICE.en, es: 'Gracias. Dejaron bolsas cerca de la calle mayor.' }],
     [{ en: 'Bags were left near 12 main street.', es: GOOD_NOTICE.es }],
+    [{ en: 'Bags sit at 12 main way.', es: GOOD_NOTICE.es }],
     [{ en: 'NEAR 12 MAIN STREET.', es: GOOD_NOTICE.es }],
   ])('answers 502 gemini_bad_output when the model writes an address in any case: %j', async (answer) => {
     const fetchImpl = vi.fn(async () => geminiReply(answer))
     const res = await handleDraft(post({ spot: SPOT }), withKey(fetchImpl as unknown as typeof fetch))
     expect([res.status, await res.json()]).toEqual([502, { error: 'gemini_bad_output' }])
+  })
+
+  it('returns 200 for a normal notice that mentions the report count and the street', async () => {
+    const answer = {
+      en: 'Thank you, neighbors. Dumping was reported 12 times on this street at Plus Code 865QRCC9+23.',
+      es: 'Gracias, vecinos. Se reportó basura 12 veces en esta calle, en el Plus Code 865QRCC9+23.',
+    }
+    const fetchImpl = vi.fn(async () => geminiReply(answer))
+    const res = await handleDraft(post({ spot: SPOT }), withKey(fetchImpl as unknown as typeof fetch))
+    expect(res.status).toBe(200)
   })
 
   it('answers 502 with the upstream status when Gemini fails', async () => {

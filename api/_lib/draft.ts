@@ -159,19 +159,68 @@ const MAX_NOTICE_CHARS = 2000
 // A run of 3+ digits outside a code-like token: house numbers, phone numbers, years, report ids.
 const DIGIT_RUN = /(^|[^A-Z0-9+])\d{3,}(?![A-Z0-9])/
 const PLATE_WORDS = /\b(plates?|placas?|matr[ií]culas?|tablillas?|tag\s+numbers?)\b/i
-const STREET_SUFFIX =
-  'St|Street|Rd|Road|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Hwy|Highway|Cir|Circle|Pl|Place|Trl|Trail|Ter|Terrace'
-// "12 Main St", "4 Old Powder Springs Road": a number, capitalized words, a street suffix.
-const STREET_ADDRESS = new RegExp(`\\b\\d+\\s+(?:[A-Z][\\w'.-]*\\s+){1,4}(?:${STREET_SUFFIX})\\b`)
-// Any capitalization ("12 main street", "12 MAIN STREET"), with only the suffixes that are not also
-// common words, so "reported 12 times at this place" still passes.
-const STREET_ADDRESS_ANY_CASE = new RegExp(
-  `\\b\\d+\\s+(?:[a-z][\\w'.-]*\\s+){1,4}(?:street|st|road|rd|avenue|ave|boulevard|blvd|drive|dr|lane|ln|parkway|pkwy|highway|hwy|circle|cir|terrace|trail|trl)\\b`,
-  'i',
+
+// Street addresses, found by shape rather than by capitalization, on lowercased word tokens.
+// English: a house number, then 1 to 4 name words in the same clause, then a street suffix
+// ("12 Main St", "12 main way", "4 Old Powder Springs Road", "12 N. Main St"). A word that cannot
+// be part of a street name (a function word or a count noun) breaks the match, so "reported 12
+// times on this street" passes. Spanish: a street word followed by a name or a number ("calle
+// Mayor", "calle mayor", "calle 5", "Calle de Alcala"), while "la calle es" or "la calle limpia"
+// passes. The notice is a draft a person approves; this check is the second line, not the first.
+const SUFFIXES = new Set([
+  'st', 'street', 'rd', 'road', 'ave', 'avenue', 'blvd', 'boulevard', 'dr', 'drive', 'ln', 'lane', 'way',
+  'ct', 'court', 'pkwy', 'parkway', 'hwy', 'highway', 'cir', 'circle', 'pl', 'place', 'trl', 'trail', 'ter', 'terrace',
+])
+const EN_NOT_NAME = new Set(
+  ('a an the this that these those of on in at by near for to from and or with without along our your their ' +
+    'his her its my we you they it is are was were be been has have had more than over about around up down ' +
+    'out off into onto since per every each other another times time reports report reported piles pile bags ' +
+    'bag tires tire items item pieces piece loads load trucks truck people neighbors neighbor residents ' +
+    'families households days day weeks week months month years year calls call signs sign crews crew cameras ' +
+    'camera spots spot places cleanups cleanup visits mattresses couches chairs appliances blocks minutes hours ' +
+    'feet meters miles percent so then also please').split(' '),
 )
-// "Calle Mayor", "calle Mayor", "CALLE MAYOR": the street word in any case, then a name or number.
-// "la calle es" (the street, in a sentence) is not a name and passes.
-const SPANISH_STREET_NAME = /\b(?:[Cc]alle|[Aa]venida|[Cc]arretera|[Cc]amino|CALLE|AVENIDA|CARRETERA|CAMINO)\s+[A-Z0-9]/
+// Abbreviations that can sit inside a street name without ending the sentence ("12 N. Main St").
+const ABBREVIATIONS = new Set(['n.', 's.', 'e.', 'w.', 'ne.', 'nw.', 'se.', 'sw.', 'mt.', 'ft.', 'st.'])
+const ES_STREET = new Set(['calle', 'avenida', 'carretera', 'camino', 'paseo', 'bulevar'])
+const ES_NOT_NAME = new Set(
+  ('es está están son fue era y o u e a al de del la el lo los las en con sin por para que se no ni más muy ' +
+    'cerca donde esta este estos estas ese esa su sus nuestra nuestro nuestras nuestros limpia limpio limpias ' +
+    'limpios sucia sucio también hoy ahora cada todos todas otra otro junto frente si sí como cuando pero ' +
+    'porque hay tiene tienen puede pueden ya mismo misma').split(' '),
+)
+const TOKEN = /[\p{L}\p{N}][\p{L}\p{N}'’-]*\.?|[!?;:,()\n]/gu
+const HOUSE_NUMBER = /^\d{1,5}(?:[a-z]|-\d{1,5})?$/
+const isBreak = (t: string) => /^[!?;:,()\n]$/.test(t)
+const bare = (t: string) => t.replace(/\.$/, '')
+
+export function looksLikeAddress(text: string): boolean {
+  const raw = text.match(TOKEN) ?? []
+  const ts = raw.map((t) => t.toLowerCase())
+  for (let i = 0; i < ts.length; i++) {
+    if (HOUSE_NUMBER.test(bare(ts[i])) && !ts[i].endsWith('.')) {
+      let names = 0
+      for (let j = i + 1; j < ts.length && names <= 4; j++) {
+        const t = ts[j]
+        const w = bare(t)
+        if (isBreak(t)) break
+        // A suffix word right after the number is part of the name ("12 St. Johns Rd", "4 Court St").
+        if (SUFFIXES.has(w) && names >= 1) return true
+        if (EN_NOT_NAME.has(w) || /^\d/.test(w)) break
+        names++
+        if (t.endsWith('.') && !ABBREVIATIONS.has(t)) break // the sentence ends on this word
+      }
+    }
+    if (ES_STREET.has(ts[i])) {
+      const next = ts[i + 1]
+      if (next === undefined || isBreak(next)) continue
+      if (/^\d/.test(next)) return true
+      if ((next === 'de' || next === 'del') && raw[i + 2] && /^[\p{Lu}\p{N}]/u.test(raw[i + 2])) return true
+      if (!ES_NOT_NAME.has(bare(next))) return true
+    }
+  }
+  return false
+}
 // Any Plus Code other than the spot's own would place the notice somewhere else.
 const ANY_PLUS_CODE = /[23456789CFGHJMPQRVWX]{4,8}\+/i
 
@@ -181,7 +230,7 @@ export function unsafeNoticeReason(text: string, plusCode: string): string | nul
   if (DIGIT_RUN.test(withoutCode)) return 'number with three or more digits'
   if (ANY_PLUS_CODE.test(withoutCode)) return 'different Plus Code'
   if (PLATE_WORDS.test(text)) return 'license plate wording'
-  if (STREET_ADDRESS.test(text) || STREET_ADDRESS_ANY_CASE.test(text) || SPANISH_STREET_NAME.test(text)) return 'street address'
+  if (looksLikeAddress(text)) return 'street address'
   return null
 }
 
