@@ -1,0 +1,5 @@
+# Hand-verified false positives. Each is the test value 'bm90LWEta2V5', base64 for the text
+# "not-a-key", used to prove /api/sign answers 503 when the configured key is unusable.
+db732da975e9b9a69ef78ab89f32259f3f2cdf41:api/_tests/sign.test.ts:generic-api-key:96
+0d8e407754500a09982e6fa52f5784f6513a64da:api/_tests/sign.test.ts:generic-api-key:82
+api/_tests/sign.test.ts:generic-api-key:96
