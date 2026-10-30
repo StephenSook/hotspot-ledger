@@ -2,7 +2,8 @@
  * prefixed with an apostrophe so a spreadsheet shows it as text instead of running it. */
 export function csvCell(v: string | number): string {
   let s = String(v)
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
+  // oxlint-disable-next-line no-control-regex -- leading control characters are the bypass being blocked
+  if (/^[\s\u0000-\u001f]*[=+\-@]/.test(s) || /^[\t\r]/.test(s)) s = `'${s}`
   return `"${s.replace(/"/g, '""')}"`
 }
 

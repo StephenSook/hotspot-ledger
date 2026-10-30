@@ -10,6 +10,7 @@ describe('csv', () => {
     for (const bad of ['=HYPERLINK("x")', '+1', '-1+2', '@SUM(A1)', '\tx', '\rx']) {
       expect(csvCell(bad).startsWith(`"'`)).toBe(true)
     }
+    expect(csvCell(' =1+1')).toBe(`"' =1+1"`)
     expect(csvCell('Front St SW')).toBe('"Front St SW"')
     expect(csvCell(42)).toBe('"42"')
   })
