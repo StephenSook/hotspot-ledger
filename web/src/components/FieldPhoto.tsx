@@ -108,7 +108,6 @@ export default function FieldPhoto({ onResult }: { onResult?: (r: ClassifyResult
           <dt>Likely dumping</dt><dd>{result.is_dumping_likely ? 'yes' : 'no'}</dd>
         </dl>
       )}
-      {result?.notes && <p className="dim" style={{ fontSize: 12 }}>{result.notes}</p>}
       {result && result.tire_count_estimate != null && result.tire_count_estimate > 25 && (
         <p className="note">More than 25 tires: a likely state storage violation to refer to EPD (Rule 391-3-4-.19).</p>
       )}

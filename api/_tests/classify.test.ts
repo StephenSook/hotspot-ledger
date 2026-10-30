@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import classifyFunction from '../classify'
 import {
   CLASSIFY_MODEL,
+  CLASSIFY_SCHEMA,
+  CLASSIFY_SYSTEM,
   MAX_IMAGE_BYTES,
   handleClassify,
   parseClassification,
   validateClassifyRequest,
 } from '../_lib/classify'
-import { createRateLimiter } from '../_lib/staff'
+import { createGateLimiters } from '../_lib/staff'
 
 const b64 = (bytes: number[]) => btoa(String.fromCharCode(...bytes))
 const pad = (head: number[], total = 32) => [...head, ...new Array(Math.max(0, total - head.length)).fill(0)]
@@ -29,7 +31,7 @@ const withKey = (fetchImpl: typeof fetch) => ({
   env: (name: string) => ENV[name],
   fetchImpl,
   now: () => new Date('2026-10-30T15:00:00.000Z'),
-  limiter: createRateLimiter(1000), // fresh per test so the module limiter never leaks a 429
+  limiters: createGateLimiters(1000, 1000), // fresh per test so the module limiters never leak a 429
 })
 
 afterEach(() => {
@@ -73,25 +75,30 @@ describe('validateClassifyRequest', () => {
 
 describe('parseClassification', () => {
   it('keeps only known labels, once each, in order', () => {
+    const out = parseClassification({ items: ['tires', 'mattress', 'tires', 'bags'], tire_count_estimate: 6, is_dumping_likely: true })
+    expect(out).toEqual({ items: ['tires', 'bags'], tire_count_estimate: 6, is_dumping_likely: true })
+  })
+  it('turns an unusable tire count into null', () => {
+    expect(parseClassification({ items: [], tire_count_estimate: 2.5, is_dumping_likely: false }).tire_count_estimate).toBeNull()
+    expect(parseClassification({ items: [], tire_count_estimate: -1, is_dumping_likely: false }).tire_count_estimate).toBeNull()
+    expect(parseClassification({ items: [], tire_count_estimate: 1001, is_dumping_likely: false }).tire_count_estimate).toBeNull()
+    expect(parseClassification({ items: [], tire_count_estimate: null, is_dumping_likely: false }).tire_count_estimate).toBeNull()
+  })
+  it('drops any free text the model adds, so nothing can describe a person', () => {
     const out = parseClassification({
-      items: ['tires', 'mattress', 'tires', 'bags'],
-      tire_count_estimate: 6,
+      items: ['furniture'],
+      tire_count_estimate: 0,
       is_dumping_likely: true,
-      notes: 'Six tires and two black bags beside the curb.',
+      notes: 'A man in a red shirt, plate ABC1234',
+      description: 'Jane Doe at 123 Main St',
     })
-    expect(out).toEqual({ items: ['tires', 'bags'], tire_count_estimate: 6, is_dumping_likely: true, notes: 'Six tires and two black bags beside the curb.' })
+    expect(out).toEqual({ items: ['furniture'], tire_count_estimate: 0, is_dumping_likely: true })
+    expect(Object.keys(out).sort()).toEqual(['is_dumping_likely', 'items', 'tire_count_estimate'])
   })
-  it('turns an unusable tire count into null and caps notes at 140 characters', () => {
-    const out = parseClassification({ items: [], tire_count_estimate: 2.5, is_dumping_likely: false, notes: 'x'.repeat(300) })
-    expect(out.tire_count_estimate).toBeNull()
-    expect(out.notes).toHaveLength(140)
-    expect(parseClassification({ items: [], tire_count_estimate: -1, is_dumping_likely: false, notes: '' }).tire_count_estimate).toBeNull()
-    expect(parseClassification({ items: [], tire_count_estimate: null, is_dumping_likely: false, notes: '' }).tire_count_estimate).toBeNull()
-  })
-  it('drops notes that describe a person', () => {
-    expect(parseClassification({ items: ['furniture'], tire_count_estimate: 0, is_dumping_likely: true, notes: 'A man in a red shirt next to a couch' }).notes).toBe('')
-    expect(parseClassification({ items: ['bags'], tire_count_estimate: 0, is_dumping_likely: true, notes: 'Someone left bags here' }).notes).toBe('')
-    expect(parseClassification({ items: ['bags'], tire_count_estimate: 0, is_dumping_likely: true, notes: 'Other debris and bags' }).notes).toBe('Other debris and bags')
+  it('asks Gemini for exactly three closed fields and no free text', () => {
+    expect(Object.keys(CLASSIFY_SCHEMA.properties).sort()).toEqual(['is_dumping_likely', 'items', 'tire_count_estimate'])
+    expect(CLASSIFY_SCHEMA.required).toEqual(['items', 'tire_count_estimate', 'is_dumping_likely'])
+    expect(CLASSIFY_SYSTEM).not.toContain('notes')
   })
   it.each([[null], [{ items: 'tires', is_dumping_likely: true }], [{ items: [], is_dumping_likely: 'yes' }]])('rejects %j', (value) => {
     expect(() => parseClassification(value)).toThrow()
@@ -108,7 +115,7 @@ describe('handleClassify', () => {
   it('answers 503 gemini_not_configured when the key is missing, including from the default export', async () => {
     const fetchImpl = vi.fn()
     const env = (name: string) => (name === 'STAFF_TOKEN' ? TOKEN : undefined)
-    const res = await handleClassify(post({ image: JPEG_URL }), { env, fetchImpl, limiter: createRateLimiter() })
+    const res = await handleClassify(post({ image: JPEG_URL }), { env, fetchImpl, limiters: createGateLimiters() })
     expect([res.status, await res.json()]).toEqual([503, { error: 'gemini_not_configured' }])
     expect(fetchImpl).not.toHaveBeenCalled()
 
@@ -130,7 +137,7 @@ describe('handleClassify', () => {
       vi.spyOn(console, level).mockImplementation((...args: unknown[]) => void logs.push(args.map(String).join(' ')))
     }
     const fetchImpl = vi.fn(async () =>
-      geminiReply({ items: ['tires', 'other'], tire_count_estimate: 4, is_dumping_likely: true, notes: 'Four tires in tall grass.' }),
+      geminiReply({ items: ['tires', 'other'], tire_count_estimate: 4, is_dumping_likely: true, notes: 'A woman stands by the tires.' }),
     )
     const res = await handleClassify(post({ image: JPEG_URL }), withKey(fetchImpl as unknown as typeof fetch))
     expect(res.status).toBe(200)
@@ -138,7 +145,6 @@ describe('handleClassify', () => {
       items: ['tires', 'other'],
       tire_count_estimate: 4,
       is_dumping_likely: true,
-      notes: 'Four tires in tall grass.',
       model: CLASSIFY_MODEL,
       classified_at: '2026-10-30T15:00:00.000Z',
     })

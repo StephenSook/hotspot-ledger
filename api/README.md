@@ -32,21 +32,30 @@ Errors: `400` bad input, `405` not POST, `500 {"error":"solver_failed"}`.
 Drafts a short neighbor notice in English and Spanish for one spot, from aggregate facts only.
 
 ```json
-{"spot": {"plus_code": "865QRCC9+23", "district": "5", "items": {"tires": 11, "furniture": 9, "appliances": 3, "bags": 14, "construction": 1}, "n": 57, "last": "2026-10-25", "treatment": "sign_qr", "owner_label": "Local road or private parcel: confirm the owner"}}
+{"spot": {"plus_code": "865QRCC9+23", "district": "5", "items": {"tires": 11, "furniture": 9, "appliances": 3, "bags": 14, "construction": 1}, "n": 57, "last": "2026-10-25", "treatment": "sign_qr", "owner_label": "confirm"}}
 ```
 
 Answer: `{"en": "...", "es": "...", "model": "gemini-3.8-flash", "drafted_at": "2026-10-30T14:00:00.000Z", "status": "draft"}`
 
 - The notice is a draft. A staff member approves it before anything is posted.
-- Location is given only as the Plus Code and council district. `owner_label` is validated but is not
-  sent to Gemini, because it can name a road.
+- Input rules (anything else is `400`): exactly these seven keys; `plus_code` a full Plus Code
+  (`^[23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2,3}$`); `district` `null` or `"1"` to `"6"`;
+  `treatment` one of the planner codes `close_access`, `sign_qr`, `bulk_outreach`, `tire_play`,
+  `commercial_check`, `cleanup`, `camera`; `owner_label` one of `city`, `cobb`, `gdot`, `private`,
+  `confirm`; item counts and `n` integers 0 to 10000; `last` a real `YYYY-MM` or `YYYY-MM-DD`;
+  body at most 4 KB.
+- Prompt-injection defence: no free text reaches the prompt. Every value is a number, a fixed code,
+  or a strictly patterned string. Each treatment code becomes a fixed sentence written in this repo.
+  `owner_label` is validated but not sent. `last` is sent as words ("within the last three months"),
+  not as a date, and counts of 100 or more as "over one hundred".
+- Output check before any `200`: each language is at most 2000 characters, and the answer is refused
+  with `502 {"error":"gemini_bad_output"}` if, after removing the spot's own Plus Code, it contains
+  a run of 3 or more digits (`(^|[^A-Z0-9+])\d{3,}(?![A-Z0-9])`, which catches years, dates, phone
+  and house numbers), any other Plus Code, license plate wording (plate, placa, matrícula, tablilla,
+  tag number), or a street address (a number, capitalized words and a street suffix, or Calle /
+  Avenida / Carretera / Camino followed by a name). The refused text is never returned or logged.
 - The bulk-pickup tip is added when furniture plus appliances is the largest item group; the tire
   amnesty tip when tires are. Ties add both.
-- Known treatment codes from the planner (`sign_qr`, `close_access`, `bulk_outreach`, `tire_play`,
-  `commercial_check`, `cleanup`, `camera`) are turned into plain sentences; other text is passed as written.
-- Input rules: all seven keys, no others; strings 1 to 100 characters with no control characters;
-  `plus_code` a full Plus Code; `district` a string or `null`; item counts and `n` integers 0 to 10000;
-  `last` a real `YYYY-MM-DD` date; body at most 4 KB.
 
 ## POST /api/classify (staff only)
 
@@ -56,12 +65,14 @@ Says which kinds of dumped items are in one field photo. The browser blurs faces
 {"image": "data:image/jpeg;base64,/9j/4AAQ..."}
 ```
 
-Answer: `{"items": ["tires", "bags"], "tire_count_estimate": 6, "is_dumping_likely": true, "notes": "...", "model": "gemini-3.5-flash-lite", "classified_at": "..."}`
+Answer: `{"items": ["tires", "bags"], "tire_count_estimate": 6, "is_dumping_likely": true, "model": "gemini-3.5-flash-lite", "classified_at": "..."}`
 
 - `image/jpeg`, `image/png` or `image/webp` only, at most 1.5 MB decoded. The file signature must match
   the declared type.
-- `items` uses only `tires`, `furniture`, `appliances`, `bags`, `construction`, `other`.
-- `notes` is capped at 140 characters, and dropped entirely if it mentions a person.
+- The answer has no free text at all: `items` uses only `tires`, `furniture`, `appliances`, `bags`,
+  `construction`, `other`; `tire_count_estimate` is an integer 0 to 1000 or `null`;
+  `is_dumping_likely` is a boolean. Anything else the model returns is dropped, so it has no channel
+  to describe a person, read a plate, or repeat an instruction hidden in the photo.
 - The image is never logged or stored.
 
 ## Staff-only access (draft and classify)
@@ -74,16 +85,20 @@ Checks, in this order:
 |---|---|
 | Method is POST | `405 {"error":"method_not_allowed"}` |
 | `STAFF_TOKEN` is set and at least 32 characters | `503 {"error":"staff_auth_not_configured"}` |
-| Rate limit: 10 requests a minute per client address | `429 {"error":"rate_limited"}` with `Retry-After` |
-| Header `x-staff-token` equals `STAFF_TOKEN` | `401 {"error":"staff_only"}` |
+| Header `x-staff-token` equals `STAFF_TOKEN` | `401 {"error":"staff_only"}`, or `429 {"error":"rate_limited"}` after 10 failed attempts a minute from that address |
+| Authorized budget: 30 requests a minute per address | `429 {"error":"rate_limited"}` with `Retry-After` |
 | `GEMINI_API_KEY` is set | `503 {"error":"gemini_not_configured"}` |
 | Input is valid | `400 {"error":"<what is wrong>"}` |
-| Gemini answers | `502 {"error":"gemini_failed","status":<upstream status, 0 if unreachable>}`, `504 {"error":"gemini_timeout"}` after 20 s, `502 {"error":"gemini_blocked"}`, `502 {"error":"gemini_bad_output"}` |
+| Gemini answers | `502 {"error":"gemini_failed","status":<upstream status, 0 if unreachable>}`, `504 {"error":"gemini_timeout"}` after 20 s, `502 {"error":"gemini_blocked"}` |
+| Answer passes the output check (draft) or parses (classify) | `502 {"error":"gemini_bad_output"}` |
 
 - The token is compared with `crypto.timingSafeEqual`. A wrong length is refused after an equal amount
   of comparison work, so timing reveals at most that the length differs.
-- The rate limit runs before the token check, so guessing is throttled as well. The client address is
-  the first `x-forwarded-for` entry, which Vercel sets itself and does not let clients spoof.
+- Two separate budgets per client address. Wrong or missing tokens spend only the failed-auth budget
+  (10 a minute), which throttles guessing. A valid token spends only the authorized budget (30 a
+  minute) and is never blocked by failed attempts, so strangers on a shared address (city hall Wi-Fi,
+  a phone carrier's NAT) cannot lock a staff member out. The client address is the first
+  `x-forwarded-for` entry, which Vercel sets itself and does not let clients spoof.
 - The rate limit is best effort: it lives in one function instance's memory, serverless instances do
   not share memory, and a cold start resets it. It protects the free Gemini quota from a runaway
   client, not from a determined attacker. A shared store would be needed for a hard limit.
@@ -112,7 +127,8 @@ pnpm dlx vitest@5 run api/_tests --root .
 
 The Python tests solve small known cases (including a brute-force optimum check), reject bad input, and
 start the real request handler on a local port. The TypeScript tests mock `fetch`, so they never call
-Gemini, and cover validation, every error status, the staff gate and the rate limit.
+Gemini, and cover validation, injected input, unsafe model output, every error status, the staff gate,
+both rate-limit budgets and the shared-address lockout case.
 
 Type check (no `tsconfig.json` in `api/`, on purpose):
 

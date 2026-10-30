@@ -45,7 +45,6 @@ export interface ClassifyResult {
   items: string[]
   tire_count_estimate: number | null
   is_dumping_likely: boolean
-  notes: string
 }
 
 export const orderStops = (stops: { id: string; lat: number; lng: number }[], start_id: string | null) =>

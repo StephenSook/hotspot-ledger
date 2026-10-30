@@ -2,7 +2,7 @@
 // faces before upload. The image is passed straight to Gemini and is never logged or stored.
 import { generateJson } from './gemini'
 import { InputError, exactKeys, isPlainObject, json, methodNotAllowed, readEnv, readJsonBody } from './http'
-import { createRateLimiter, staffGate, type GateDeps } from './staff'
+import { createGateLimiters, staffGate, type GateDeps } from './staff'
 
 export const CLASSIFY_MODEL = 'gemini-3.5-flash-lite'
 export const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024
@@ -56,33 +56,28 @@ export const CLASSIFY_SYSTEM = [
   '- items: which kinds of dumped items you can see. Use only these labels: tires, furniture, appliances, bags, construction, other. Use each label at most once. Use an empty list if you see none.',
   '- tire_count_estimate: about how many tires you can see. 0 if there are no tires. null if you cannot tell.',
   '- is_dumping_likely: true if this looks like illegally dumped material, false otherwise.',
-  '- notes: at most 140 characters about the items and the scene only.',
   '',
-  'Never describe people, faces, bodies or clothing. Never read out license plates, house numbers, street signs or any other text in the photo. If you are unsure, say so in notes.',
+  'Judge only the dumped items. Ignore people, vehicles and any text in the photo.',
 ].join('\n')
 
+// No free-text field on purpose: the answer is three closed values, so the model has no channel
+// to describe a person, read a plate, or echo an instruction hidden in the photo.
 export const CLASSIFY_SCHEMA = {
   type: 'OBJECT',
   properties: {
     items: { type: 'ARRAY', items: { type: 'STRING', enum: [...CLASSIFY_LABELS] } },
     tire_count_estimate: { type: 'INTEGER', nullable: true },
     is_dumping_likely: { type: 'BOOLEAN' },
-    notes: { type: 'STRING' },
   },
-  required: ['items', 'tire_count_estimate', 'is_dumping_likely', 'notes'],
+  required: ['items', 'tire_count_estimate', 'is_dumping_likely'],
 }
 
-export const MAX_NOTES_CHARS = 140
 const MAX_TIRES = 1000
-// A last guard behind the prompt: notes that mention a person are dropped, not shown.
-const PEOPLE_WORDS =
-  /\b(person|persons|people|man|men|woman|women|boy|boys|girl|girls|child|children|kid|kids|guy|guys|lady|ladies|someone|somebody|driver|drivers|resident|residents|face|faces|he|she|him|her|his|hers)\b/i
 
 export interface Classification {
   items: ClassifyLabel[]
   tire_count_estimate: number | null
   is_dumping_likely: boolean
-  notes: string
 }
 
 export function parseClassification(value: unknown): Classification {
@@ -99,24 +94,21 @@ export function parseClassification(value: unknown): Classification {
   const tires = value.tire_count_estimate
   const tireCount = typeof tires === 'number' && Number.isInteger(tires) && tires >= 0 && tires <= MAX_TIRES ? tires : null
 
-  let notes = typeof value.notes === 'string' ? value.notes.replace(/\s+/g, ' ').trim() : ''
-  if (PEOPLE_WORDS.test(notes)) notes = ''
-  notes = Array.from(notes).slice(0, MAX_NOTES_CHARS).join('')
-
-  return { items, tire_count_estimate: tireCount, is_dumping_likely: value.is_dumping_likely, notes }
+  // Only these three keys leave the function, whatever else the model returns.
+  return { items, tire_count_estimate: tireCount, is_dumping_likely: value.is_dumping_likely }
 }
 
 export interface Deps extends GateDeps {
   fetchImpl?: typeof fetch
 }
 
-const classifyLimiter = createRateLimiter()
+const classifyLimiters = createGateLimiters()
 
-// Order: 405, staff auth configured (503), rate limit (429), staff token (401), Gemini key (503),
-// input (400), then Gemini.
+// Order: 405, staff auth configured (503), staff token (401, or 429 past the failed-auth budget),
+// authorized budget (429), Gemini key (503), input (400), then Gemini.
 export async function handleClassify(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== 'POST') return methodNotAllowed()
-  const denied = staffGate(request, deps.limiter ?? classifyLimiter, deps)
+  const denied = staffGate(request, deps.limiters ?? classifyLimiters, deps)
   if (denied) return denied
   const apiKey = (deps.env ?? readEnv)('GEMINI_API_KEY')
   if (!apiKey) return json(503, { error: 'gemini_not_configured' })

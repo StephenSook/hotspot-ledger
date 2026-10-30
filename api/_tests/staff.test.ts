@@ -1,10 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { handleClassify } from '../_lib/classify'
 import { handleDraft } from '../_lib/draft'
-import { MIN_STAFF_TOKEN_CHARS, clientKey, createRateLimiter, tokensMatch } from '../_lib/staff'
+import {
+  AUTHORIZED_PER_MINUTE,
+  FAILED_AUTH_PER_MINUTE,
+  MIN_STAFF_TOKEN_CHARS,
+  clientKey,
+  createGateLimiters,
+  createRateLimiter,
+  tokensMatch,
+} from '../_lib/staff'
 
 const TOKEN = 'staff-token-for-tests-0123456789abcdef'
 const JPEG = btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xe0, ...new Array(28).fill(0)))
+const SHARED_NAT = '203.0.113.7'
 
 const geminiReply = (value: unknown) =>
   new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] }, finishReason: 'STOP' }] }))
@@ -17,7 +26,7 @@ const CASES = [
     body: {
       spot: {
         plus_code: '865QRCC9+23', district: '5', items: { tires: 11, furniture: 9, appliances: 3, bags: 14, construction: 1 },
-        n: 57, last: '2026-10-25', treatment: 'sign_qr', owner_label: 'Local road or private parcel: confirm the owner',
+        n: 57, last: '2026-10-25', treatment: 'sign_qr', owner_label: 'confirm',
       },
     },
     reply: { en: 'Thank you, neighbors.', es: 'Gracias, vecinos.' },
@@ -26,31 +35,33 @@ const CASES = [
     name: 'classify',
     handle: handleClassify,
     body: { image: `data:image/jpeg;base64,${JPEG}` },
-    reply: { items: ['tires'], tire_count_estimate: 3, is_dumping_likely: true, notes: 'Three tires.' },
+    reply: { items: ['tires'], tire_count_estimate: 3, is_dumping_likely: true },
   },
 ] as const
 
 function request(body: unknown, headers: Record<string, string> = {}) {
   return new Request('https://hotspot.test/api/x', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.7, 10.0.0.1', ...headers },
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': `${SHARED_NAT}, 10.0.0.1`, ...headers },
     body: JSON.stringify(body),
   })
 }
 
-function deps(env: Record<string, string | undefined>, reply: unknown, limiter = createRateLimiter()) {
+function deps(env: Record<string, string | undefined>, reply: unknown, limiters = createGateLimiters()) {
   const fetchImpl = vi.fn(async () => geminiReply(reply))
-  return { fetchImpl, deps: { env: (n: string) => env[n], fetchImpl: fetchImpl as unknown as typeof fetch, limiter, now: () => new Date(0) } }
+  return { fetchImpl, deps: { env: (n: string) => env[n], fetchImpl: fetchImpl as unknown as typeof fetch, limiters, now: () => new Date(0) } }
 }
 
 const FULL_ENV = { STAFF_TOKEN: TOKEN, GEMINI_API_KEY: 'test-key' }
+const staff = { 'x-staff-token': TOKEN }
+const stranger = { 'x-staff-token': 'guess' }
 
 afterEach(() => vi.restoreAllMocks())
 
 describe.each(CASES)('staff gate on /api/$name', ({ handle, body, reply }) => {
   it('answers 503 staff_auth_not_configured when STAFF_TOKEN is unset, before anything else', async () => {
     const { fetchImpl, deps: d } = deps({ GEMINI_API_KEY: 'test-key' }, reply)
-    const res = await handle(request(body, { 'x-staff-token': TOKEN }), d)
+    const res = await handle(request(body, staff), d)
     expect([res.status, await res.json()]).toEqual([503, { error: 'staff_auth_not_configured' }])
     expect(fetchImpl).not.toHaveBeenCalled()
   })
@@ -80,42 +91,47 @@ describe.each(CASES)('staff gate on /api/$name', ({ handle, body, reply }) => {
 
   it('checks the token before the Gemini key, so a stranger cannot learn whether Gemini is set up', async () => {
     const { deps: d } = deps({ STAFF_TOKEN: TOKEN }, reply)
-    const res = await handle(request(body, { 'x-staff-token': 'wrong' }), d)
+    const res = await handle(request(body, stranger), d)
     expect(res.status).toBe(401)
   })
 
-  it('reaches the (mocked) upstream with the correct token', async () => {
+  it('reaches the (mocked) upstream with the correct token and never forwards the token', async () => {
     const { fetchImpl, deps: d } = deps(FULL_ENV, reply)
-    const res = await handle(request(body, { 'x-staff-token': TOKEN }), d)
+    const res = await handle(request(body, staff), d)
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject(reply)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    // The staff token is ours; it must never be forwarded to Google.
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(JSON.stringify(init)).not.toContain(TOKEN)
   })
 
-  it('answers 429 rate_limited after 10 requests a minute from one address', async () => {
-    const limiter = createRateLimiter()
-    const { fetchImpl, deps: d } = deps(FULL_ENV, reply, limiter)
-    for (let i = 0; i < 10; i++) {
-      const ok = await handle(request(body, { 'x-staff-token': TOKEN }), d)
-      expect(ok.status).toBe(200)
+  it('shared NAT: 10 wrong-token requests do not lock out staff with the correct token', async () => {
+    const { fetchImpl, deps: d } = deps(FULL_ENV, reply)
+    for (let i = 0; i < FAILED_AUTH_PER_MINUTE; i++) {
+      expect((await handle(request(body, stranger), d)).status).toBe(401)
     }
-    const limited = await handle(request(body, { 'x-staff-token': TOKEN }), d)
-    expect([limited.status, await limited.json()]).toEqual([429, { error: 'rate_limited' }])
-    expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0)
-    expect(fetchImpl).toHaveBeenCalledTimes(10)
+    const guessing = await handle(request(body, stranger), d)
+    expect([guessing.status, await guessing.json()]).toEqual([429, { error: 'rate_limited' }])
 
-    // Another address has its own budget.
-    const other = await handle(request(body, { 'x-staff-token': TOKEN, 'x-forwarded-for': '198.51.100.9' }), d)
-    expect(other.status).toBe(200)
+    const staffRes = await handle(request(body, staff), d)
+    expect(staffRes.status).toBe(200)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('counts wrong-token attempts too, so guessing is throttled', async () => {
-    const { deps: d } = deps(FULL_ENV, reply)
-    for (let i = 0; i < 10; i++) expect((await handle(request(body, { 'x-staff-token': 'guess' }), d)).status).toBe(401)
-    expect((await handle(request(body, { 'x-staff-token': TOKEN }), d)).status).toBe(429)
+  it(`limits authorized use to ${AUTHORIZED_PER_MINUTE} a minute per address, without touching the failed-auth budget`, async () => {
+    const { fetchImpl, deps: d } = deps(FULL_ENV, reply)
+    for (let i = 0; i < AUTHORIZED_PER_MINUTE; i++) {
+      expect((await handle(request(body, staff), d)).status).toBe(200)
+    }
+    const limited = await handle(request(body, staff), d)
+    expect([limited.status, await limited.json()]).toEqual([429, { error: 'rate_limited' }])
+    expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0)
+    expect(fetchImpl).toHaveBeenCalledTimes(AUTHORIZED_PER_MINUTE)
+
+    // Authorized use spent none of the failed-auth budget: a wrong token still gets a plain 401.
+    expect((await handle(request(body, stranger), d)).status).toBe(401)
+    // Another address has its own budget.
+    expect((await handle(request(body, { ...staff, 'x-forwarded-for': '198.51.100.9' }), d)).status).toBe(200)
   })
 })
 
