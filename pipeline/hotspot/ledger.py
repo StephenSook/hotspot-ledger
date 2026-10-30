@@ -120,7 +120,7 @@ def capture_recapture(reports: list[Report], top: str, last_year: int) -> dict:
         "seen": len(a | b),
         "estimate": round(est),
         "ci95": [round(est - 1.96 * se), round(est + 1.96 * se)],
-        "note": "Floor: both sources watch the same roadsides, which biases the estimate low.",
+        "note": "A rough size, not a floor: the two sources lean toward different report types (the top account 64% shoulder debris, everyone else 64% litter), so the estimate could run high or low.",
     }
 
 
