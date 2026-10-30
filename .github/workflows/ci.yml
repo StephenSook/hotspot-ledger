@@ -56,7 +56,7 @@ jobs:
           CI: "true"
 
   api:
-    name: API (pytest, vitest)
+    name: API (pytest, typecheck, vitest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,4 +70,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: pnpm --package=typescript@7.0.2 dlx tsc -p tsconfig.api.json
       - run: pnpm dlx vitest@5 run api/_tests --root .

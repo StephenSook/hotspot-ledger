@@ -132,7 +132,8 @@ Yggdrasil Decision Forests, MediaPipe Tasks (face detector, object detector), Ge
   model must beat the near-old-hotspots baseline on the holdout).
 - `web`: oxlint, `tsgo` typecheck, vitest (planner rules, CSV safety, camera analysis),
   `vite build`, Playwright end-to-end with an axe accessibility scan on every page.
-- `api`: pytest for the OR-Tools route, vitest for the Gemini and staff-gate functions.
+- `api`: pytest for the OR-Tools route, a strict `tsc` typecheck of the functions, vitest for the
+  Gemini and staff-gate functions.
 - The same Playwright suite runs against the live site with `BASE_URL=<url> pnpm e2e`.
 
 ## Data refresh
