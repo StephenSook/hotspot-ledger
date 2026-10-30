@@ -40,7 +40,7 @@ async function post<T>(path: string, body: unknown, timeoutMs = 30000): Promise<
 }
 
 export interface RouteResult { order: string[]; distance_km: number; solver: string }
-export interface DraftResult { en: string; es: string; model: string; drafted_at: string; status: 'draft' }
+export interface DraftResult { en: string; es: string; sentences: string[]; model: string; drafted_at: string; status: 'draft' }
 export interface ClassifyResult {
   items: string[]
   tire_count_estimate: number | null

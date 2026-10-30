@@ -29,7 +29,7 @@ const CASES = [
         n: 57, recent: 9, treatment: 'sign_qr', owner_label: 'confirm',
       },
     },
-    reply: { en: 'Thank you, neighbors.', es: 'Gracias, vecinos.' },
+    reply: { sentences: ['where', 'action', 'how_to_report'] },
   },
   {
     name: 'classify',

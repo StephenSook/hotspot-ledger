@@ -103,8 +103,8 @@ two jobs that need a server (route ordering and Gemini drafting), and nothing id
 | Function | Does | Needs |
 |---|---|---|
 | `api/route.py` | Orders a crew's stops with Google OR-Tools (traveling-salesman on haversine distances) | nothing |
-| `api/draft.ts` | Drafts an English and Spanish notice for an approved spot with `gemini-3.8-flash`, from aggregate facts only | `GEMINI_API_KEY` (free tier, project with no billing) |
-| `api/classify.ts` | Classifies a face-blurred field photo into tires / furniture / bags / construction with `gemini-3.5-flash-lite` | `GEMINI_API_KEY` |
+| `api/draft.ts` | Drafts an English and Spanish notice for an approved spot. Gemini (`gemini-3.8-flash`) chooses which sentences to use and their order; code writes the notice from a bilingual sentence bank and fills every number | `STAFF_TOKEN`, `GEMINI_API_KEY` (free tier, project with no billing) |
+| `api/classify.ts` | Classifies a face-blurred field photo into tires / furniture / bags / construction with `gemini-3.5-flash-lite` | `STAFF_TOKEN`, `GEMINI_API_KEY` |
 
 When the key is missing the functions answer `503 {"error":"gemini_not_configured"}` and the UI
 says so plainly. Nothing is faked.
@@ -116,6 +116,7 @@ says so plainly. Nothing is faked.
 | Public data only | pipeline fetches only public APIs |
 | No personal data in public output | `validate_cells` and `privacy_guard` run on every export and in pytest; either one fails the build |
 | No resident ever talks to free-tier Gemini | Gemini calls exist only behind staff actions; text sent is aggregate facts; photos are face-blurred on device first |
+| No model-written word reaches a resident | Gemini returns sentence ids from an enum; code renders the notice from sentences the team wrote and translated |
 | Human in the loop | Notices and plans are drafts until a person approves them |
 | No license-plate reading | no LPR code exists; the camera page detects objects and people as boxes only |
 | Credit sources | SeeClickFix (CC BY-NC-SA 3.0 US), OpenStreetMap contributors (ODbL), Cobb County GIS, ACS via Google Data Commons |

@@ -1,15 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import draftFunction from '../draft'
 import {
+  ACTION,
+  CLOSING,
   DRAFT_MAX_BODY_BYTES,
   DRAFT_MODEL,
+  OPENING,
+  SENTENCE_IDS,
   TREATMENTS,
-  allowedNumbers,
   buildDraftPrompt,
+  composeNotice,
   handleDraft,
-  parseDraft,
+  parseChoice,
   pickTips,
-  unsafeNoticeReason,
+  sentenceBank,
   validateDraftRequest,
   type Spot,
 } from '../_lib/draft'
@@ -44,10 +48,6 @@ const geminiReply = (value: unknown, status = 200) =>
     headers: { 'content-type': 'application/json' },
   })
 
-const GOOD_NOTICE = {
-  en: 'Thank you, neighbors. Dumping keeps coming back at Plus Code 865QRCC9+23 in council district 5. Scan the QR code on the city sign to report it.',
-  es: 'Gracias, vecinos. La basura sigue apareciendo en el Plus Code 865QRCC9+23, distrito 5. Escanee el código QR del letrero para reportarlo.',
-}
 
 const ENV: Record<string, string> = { GEMINI_API_KEY: 'test-key-123', STAFF_TOKEN: TOKEN }
 const withKey = (fetchImpl: typeof fetch) => ({
@@ -127,155 +127,104 @@ describe('pickTips', () => {
   })
 })
 
-describe('buildDraftPrompt', () => {
-  const tireSpot: Spot = { ...SPOT, items: { tires: 12, furniture: 8, appliances: 0, bags: 2, construction: 0 } }
-  it('sends only aggregate facts: no date, no year, no owner label', () => {
-    const { system, user } = buildDraftPrompt({ ...tireSpot, owner_label: 'gdot' })
-    expect(user).toContain('865QRCC9+23')
-    expect(user).toContain('"council_district":"5"')
-    expect(user).toContain('"reports_in_the_last_12_months":9')
-    expect(user).toContain('tire amnesty')
-    expect(user).not.toContain('2026')
-    expect(user).not.toContain('gdot')
-    expect(system).toContain('English ("en")')
-    expect(system).toContain('Spanish ("es")')
-    expect(system).toContain('grade 6')
-    expect(system).toContain('QR code')
-    expect(system).toContain('Write the Plus Code exactly as given')
-    expect(system).toMatch(/Do not blame anyone/)
+describe('sentenceBank', () => {
+  it('offers only sentences whose facts exist, and tips only when that item group dominates', () => {
+    const bank = sentenceBank(SPOT) // bags 14 lead, so no tip
+    expect(Object.keys(bank).sort()).toEqual(
+      ['action', 'bags', 'bulky', 'construction', 'how_to_report', 'no_blame', 'recent', 'tires', 'total', 'where'].sort(),
+    )
+    const quiet = sentenceBank({ ...SPOT, recent: 0, items: { tires: 12, furniture: 0, appliances: 0, bags: 0, construction: 0 } })
+    expect(quiet.recent).toBeUndefined()
+    expect(quiet.bags).toBeUndefined()
+    expect(quiet.tip_tires).toBeDefined()
+    expect(quiet.tip_bulk).toBeUndefined()
   })
-  it('gives counts of 100 or more in words', () => {
-    const { user } = buildDraftPrompt({ ...SPOT, n: 250, recent: 140, items: { ...SPOT.items, bags: 120 } })
-    expect(user).toContain('"reports_in_the_last_12_months":"over one hundred"')
-    expect(user).toContain('"dumping_reports_on_record":"over one hundred"')
-    expect(user).toContain('"bags":"over one hundred"')
-    expect(user.replace(SPOT.plus_code, '')).not.toMatch(/\d{3}/)
+  it('fills every number from the request, in both languages, with singular forms', () => {
+    const bank = sentenceBank(SPOT)
+    expect(bank.where!.en).toBe('Dumping keeps coming back at Plus Code 865QRCC9+23, in council district 5.')
+    expect(bank.where!.es).toBe('La basura tirada sigue apareciendo en el Plus Code 865QRCC9+23, en el distrito 5.')
+    expect(bank.total!.en).toBe('It has been reported 57 times since 2021.')
+    expect(bank.bulky!.es).toBe('12 reportes mencionan muebles o electrodomésticos.')
+    const one = sentenceBank({ ...SPOT, district: null, recent: 1, items: { ...SPOT.items, construction: 1 } })
+    expect(one.where!.en).toBe('Dumping keeps coming back at Plus Code 865QRCC9+23.')
+    expect(one.construction!.en).toBe('1 report mentions construction debris.')
+    expect(one.recent!.es).toBe('1 de esos reportes llegó en los últimos 12 meses.')
   })
-  it('adds the tire tip only when tires dominate', () => {
-    expect(buildDraftPrompt(tireSpot).system).toContain('tire amnesty event')
-    expect(buildDraftPrompt(tireSpot).system).not.toContain('bulk-item pickup instead')
-    const bulkSpot: Spot = { ...SPOT, items: { tires: 1, furniture: 6, appliances: 4, bags: 2, construction: 0 } }
-    expect(buildDraftPrompt(bulkSpot).system).toContain('bulk-item pickup instead')
-    expect(buildDraftPrompt(SPOT).system).toContain('Do not add tips')
-  })
-  it('turns every treatment code into a fixed sentence', () => {
+  it('turns every treatment code into its fixed sentence in both languages', () => {
     for (const treatment of TREATMENTS) {
-      const { user } = buildDraftPrompt({ ...SPOT, treatment })
-      expect(user).not.toContain(`"city_action":"${treatment}"`)
-      expect(user).toMatch(/"city_action":"(The city|A city crew) /)
+      const bank = sentenceBank({ ...SPOT, treatment })
+      expect(bank.action).toEqual(ACTION[treatment])
+      expect(bank.action!.es.length).toBeGreaterThan(10)
     }
   })
 })
 
-describe('notice output check', () => {
-  // Full notices of the length and shape the prompt asks for, using only the SPOT facts.
-  const FULL_EN =
-    'Thank you, neighbors. Dumping has been reported 57 times at Plus Code 865QRCC9+23 in council district 5, ' +
-    'including 9 times in the last 12 months. Reports mention 11 tires and 14 bags. The City of Mableton is ' +
-    "promoting tire amnesty so old tires have a proper place to go. To report dumping, scan the QR code on the city " +
-    "sign at this spot or visit the City of Mableton's website. Thank you for helping keep this area clean."
-  const FULL_ES =
-    'Gracias, vecinos. Se reportó basura 57 veces en el Plus Code 865QRCC9+23, distrito 5, y 9 veces en los ' +
-    'últimos 12 meses. Los reportes incluyen 14 bolsas y 11 llantas. La Ciudad de Mableton va a promover la ' +
-    'amnistía de llantas. Por favor, ayude a mantener la calle libre de basura. Para reportar basura nueva, ' +
-    'escanee el código QR del letrero o visite el sitio web de la Ciudad de Mableton. Gracias por cuidar este ' +
-    'espacio para todos.'
-
-  it('accepts full bilingual notices that use only the facts', () => {
-    expect(parseDraft(GOOD_NOTICE, SPOT)).toEqual(GOOD_NOTICE)
-    expect(parseDraft({ en: FULL_EN, es: FULL_ES }, SPOT)).toEqual({ en: FULL_EN, es: FULL_ES })
+describe('buildDraftPrompt', () => {
+  it('tells the model it chooses and never writes, and sends only the rendered options', () => {
+    const { system, user } = buildDraftPrompt({ ...SPOT, owner_label: 'gdot' })
+    expect(system).toContain('You do not write the notice')
+    expect(system).toContain('"where", "action" and "how_to_report"')
+    const options = JSON.parse(user.slice(user.indexOf('['))) as { id: string; text: string }[]
+    expect(options.map((o) => o.id)).toEqual(SENTENCE_IDS.filter((id) => sentenceBank(SPOT)[id]))
+    expect(user).not.toContain('gdot')
+    expect(user).not.toContain('tip_tires') // not offered: bags dominate
   })
+})
 
-  it('accepts report counts near street words and "the street" in ordinary Spanish', () => {
-    for (const ok of [
-      'Reported 57 times in district 5.',
-      'Reported 12 times at this place, by the way.',
-      'Neighbors reported dumping 12 times on this street.',
-      'There were 9 reports in the last 12 months on this road.',
-      'Please do not drive by and leave trash.',
-      'In district 5 drive slowly and report what you see.',
-      'Tirar basura en la calle es ilegal.',
-      'Mantengamos la calle limpia.',
-      'Gracias por mantener la calle segura.',
-      'Por favor, ayude a mantener la calle libre de basura.',
-      'Se reportó 12 veces en esta calle.',
-      'Hay 9 reportes en la calle y en el camino.',
-      'Gracias por mantener limpia la calle de la ciudad.',
-    ]) {
-      expect(unsafeNoticeReason(ok, SPOT), ok).toBeNull()
-    }
+describe('parseChoice', () => {
+  it('accepts a list of known ids', () => {
+    expect(parseChoice({ sentences: ['where', 'total', 'action', 'how_to_report'] })).toEqual(['where', 'total', 'action', 'how_to_report'])
   })
-
-  it('only allows the numbers in the facts, plus 12 for the 12-month window', () => {
-    expect([...allowedNumbers(SPOT)].sort((a, b) => a - b)).toEqual([1, 3, 5, 9, 11, 12, 14, 57])
-    expect(unsafeNoticeReason('Reports mention 4 tires.', SPOT)).toContain('not one of the facts')
-    expect(unsafeNoticeReason('Los reportes incluyen 9 bolsas y 4 llantas.', SPOT)).toContain('not one of the facts')
+  it.each([
+    [null],
+    ['where'],
+    [{}],
+    [{ sentences: [] }],
+    [{ sentences: 'where' }],
+    [{ sentences: ['where', 'Jane Doe dumped this at 12 Main St'] }],
+    [{ sentences: ['where'], en: 'Free text the model tried to add' }],
+    [{ sentences: new Array(21).fill('where') }],
+  ])('rejects %j', (value) => {
+    expect(() => parseChoice(value)).toThrow()
   })
+})
 
-  const unsafe: [string, string, string][] = [
-    ['an accusation with a name and address', 'Jane Doe at 123 Main St dumped these', 'three or more digits'],
-    ['a name with no number', 'We thank Jane Doe for reporting.', 'name that is not in the facts'],
-    ['a year', 'The last report was in October 2026.', 'three or more digits'],
-    ['a date', 'Last report: 2026-10-25.', 'three or more digits'],
-    ['a phone number', 'Call 770-555-0123 to report.', 'three or more digits'],
-    ['a different Plus Code', 'Also check 865QRC99+H4 nearby.', 'different Plus Code'],
-    ['a two-digit street address', 'Bags were left near 12 Main Street.', 'street address'],
-    ['a multi-word street name', 'Near 4 Old Powder Springs Road.', 'street address'],
-    ['a lowercase street address', 'Bags were left near 12 main street.', 'street address'],
-    ['an all-caps street address', 'NEAR 12 MAIN STREET.', 'street address'],
-    ['an all-caps abbreviated address', 'Left at 12 OLD FLOYD RD.', 'street address'],
-    ['a lowercase Way address', 'Bags sit at 12 main way.', 'street address'],
-    ['a Court address', 'Left at 7 oak ct', 'street address'],
-    ['a Place address', 'Near 9 Elm Place.', 'street address'],
-    ['a directional abbreviation', 'Near 12 N. Main St.', 'street address'],
-    ['a number range', 'Near 12-14 Main St.', 'street address'],
-    ['a lettered house number', 'Near 12-B Main St.', 'street address'],
-    ['a Saint street', 'Near 12 St. Johns Rd.', 'street address'],
-    ['a suffix word as the name', 'Left at 4 Court Street', 'street address'],
-    ['an article inside an English address', 'Bags sit at 12 The Avenue.', 'name that is not in the facts'],
-    ['an invented house number before a name', 'Bags sit at 4 Elm.', 'not one of the facts'],
-    ['a Spanish street', 'Cerca de la Calle Mayor.', 'name that is not in the facts'],
-    ['a lowercase Spanish street word', 'Cerca de la calle Mayor.', 'name that is not in the facts'],
-    ['an all-caps Spanish street', 'CERCA DE LA CALLE MAYOR.', 'name that is not in the facts'],
-    ['a Spanish street name with an article', 'Cerca de la calle La Paz 12.', 'name that is not in the facts'],
-    ['an all-caps Spanish name with an article', 'Cerca de la CALLE LA PAZ 12.', 'name that is not in the facts'],
-    ['a numbered Spanish street', 'Dejaron bolsas en la calle 5.', 'street address'],
-    ['a Spanish street with de', 'Cerca de la Calle de Alcala.', 'name that is not in the facts'],
-    ['fullwidth digits', 'Near １２ Main St.', 'street address'],
-    ['a zero-width split number', 'Near 1​2 main st.', 'street address'],
-    ['a no-break space', 'Near 12 main st.', 'street address'],
-    ['a soft hyphen inside a name', 'Thanks to Ja­ne.', 'name that is not in the facts'],
-    ['license plates', 'The camera will read license plates.', 'license plate'],
-    ['placa in Spanish', 'La cámara no lee la placa del carro.', 'license plate'],
-    ['a tag number', 'Write down the tag number.', 'license plate'],
-  ]
-  it.each(unsafe)('rejects %s', (_name, text, reason) => {
-    expect(unsafeNoticeReason(text, SPOT)).toContain(reason)
-    expect(() => parseDraft({ en: GOOD_NOTICE.en, es: text }, SPOT)).toThrow()
-    expect(() => parseDraft({ en: text, es: GOOD_NOTICE.es }, SPOT)).toThrow()
+describe('composeNotice', () => {
+  it('opens and closes with fixed lines and keeps the model order around the action', () => {
+    const out = composeNotice(SPOT, ['where', 'total', 'recent', 'action', 'bags', 'how_to_report'])
+    expect(out.sentences).toEqual(['where', 'total', 'recent', 'action', 'bags', 'how_to_report'])
+    expect(out.en).toBe(
+      'Thank you, neighbors. Dumping keeps coming back at Plus Code 865QRCC9+23, in council district 5. ' +
+        'It has been reported 57 times since 2021. 9 of those reports came in the last 12 months. ' +
+        'The city is promoting tire amnesty so old tires have a proper place to go. 14 reports mention bags of trash. ' +
+        'To report dumping, scan the QR code on the city sign at this spot or report it on the City of Mableton website. ' +
+        'Thank you for helping keep this area clean.',
+    )
+    expect(out.es.startsWith('Gracias, vecinos. La basura tirada sigue apareciendo')).toBe(true)
+    expect(out.es.endsWith('Gracias por ayudar a mantener limpia esta zona.')).toBe(true)
   })
-
-  it('documents the accepted residual: an all-lowercase street name with no number passes', () => {
-    // Catching this means guessing names in lowercase Spanish, which rejected ordinary sentences such
-    // as "mantener la calle libre de basura". The model's facts hold no places, the prompt forbids
-    // them, and a person approves every draft. If this test starts failing, the residual is closed.
-    expect(unsafeNoticeReason('Gracias. Dejaron bolsas cerca de la calle mayor.', SPOT)).toBeNull()
+  it('adds required sentences the model left out and puts them in place', () => {
+    expect(composeNotice(SPOT, ['total']).sentences).toEqual(['where', 'total', 'action', 'how_to_report'])
+    expect(composeNotice(SPOT, ['how_to_report', 'action', 'where']).sentences).toEqual(['where', 'action', 'how_to_report'])
   })
-
-  it('returns notices with invisible characters removed', () => {
-    const withZeroWidth = { en: GOOD_NOTICE.en.replace('neighbors', 'neigh​bors'), es: GOOD_NOTICE.es }
-    expect(parseDraft(withZeroWidth, SPOT).en).toBe(GOOD_NOTICE.en)
+  it('drops ids this spot cannot use, repeats, and optional sentences past five', () => {
+    expect(composeNotice(SPOT, ['tip_tires', 'total', 'total']).sentences).toEqual(['where', 'total', 'action', 'how_to_report'])
+    const many = composeNotice(SPOT, ['total', 'recent', 'tires', 'bulky', 'bags', 'construction', 'no_blame', 'action'])
+    expect(many.sentences).toEqual(['where', 'total', 'recent', 'tires', 'bulky', 'bags', 'action', 'how_to_report'])
   })
-
-  it.each([[null], [{ en: 'Hi' }], [{ en: 'Hi', es: '' }], [{ en: 'Hi', es: 7 }], [{ en: 'x'.repeat(2001), es: 'y' }]])(
-    'rejects malformed output %j',
-    (value) => {
-      expect(() => parseDraft(value, SPOT)).toThrow()
-    },
-  )
+  it('contains only text from the bank: no word comes from the model', () => {
+    const bank = sentenceBank(SPOT)
+    const allowed = new Set([OPENING.en, CLOSING.en, ...Object.values(bank).map((b) => b!.en)])
+    const out = composeNotice(SPOT, [...SENTENCE_IDS])
+    let rest = out.en
+    for (const s of [...allowed].sort((a, b) => b.length - a.length)) rest = rest.split(s).join('')
+    expect(rest.trim()).toBe('')
+  })
 })
 
 describe('handleDraft', () => {
+  const CHOICE = { sentences: ['where', 'total', 'recent', 'action', 'bags', 'how_to_report'] }
+
   it('answers 405 with Allow: POST for other methods', async () => {
     const res = await handleDraft(new Request('https://hotspot.test/api/draft'), withKey(vi.fn()))
     expect(res.status).toBe(405)
@@ -327,12 +276,18 @@ describe('handleDraft', () => {
     expect((await big.json()).error).toContain('larger than')
   })
 
-  it('calls Gemini with the key in a header and returns a dated draft', async () => {
-    const fetchImpl = vi.fn(async () => geminiReply(GOOD_NOTICE))
+  it('calls Gemini with the key in a header and returns a notice composed from the bank', async () => {
+    const fetchImpl = vi.fn(async () => geminiReply(CHOICE))
     const res = await handleDraft(post({ spot: SPOT }), withKey(fetchImpl as unknown as typeof fetch))
     expect(res.status).toBe(200)
     expect(res.headers.get('cache-control')).toBe('no-store')
-    expect(await res.json()).toEqual({ ...GOOD_NOTICE, model: DRAFT_MODEL, drafted_at: NOW.toISOString(), status: 'draft' })
+    const body = await res.json()
+    expect(body).toEqual({
+      ...composeNotice(SPOT, CHOICE.sentences as never),
+      model: DRAFT_MODEL,
+      drafted_at: NOW.toISOString(),
+      status: 'draft',
+    })
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
@@ -342,44 +297,24 @@ describe('handleDraft', () => {
     expect(init.signal).toBeInstanceOf(AbortSignal)
     const sent = JSON.parse(init.body as string)
     expect(sent.generationConfig.responseMimeType).toBe('application/json')
-    expect(sent.generationConfig.responseSchema.required).toEqual(['en', 'es'])
+    expect(sent.generationConfig.responseSchema.required).toEqual(['sentences'])
+    expect(sent.generationConfig.responseSchema.properties.sentences.items.enum).toEqual([...SENTENCE_IDS])
     expect(sent.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low' })
-    expect(sent.generationConfig).not.toHaveProperty('temperature')
     expect(sent.contents[0].parts[0].text).toContain('865QRCC9+23')
   })
 
-  it('answers 502 gemini_bad_output to an accusatory answer and does not echo it', async () => {
+  it.each([
+    [{ en: 'Jane Doe at 12 Main St dumped these', es: 'Jane Doe en 12 Main St tiró esto' }],
+    [{ sentences: ['where', 'Walmart is helping keep this spot clean.'] }],
+    [{ sentences: ['where'], note: 'El reporte llegó el 9/11.' }],
+  ])('answers 502 gemini_bad_output to free text in any form and never echoes it: %j', async (answer) => {
     const errors: string[] = []
     vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void errors.push(args.map(String).join(' ')))
-    const accusatory = { en: 'Jane Doe at 123 Main St dumped these', es: 'Jane Doe en 123 Main St tiró esto' }
-    const fetchImpl = vi.fn(async () => geminiReply(accusatory))
+    const fetchImpl = vi.fn(async () => geminiReply(answer))
     const res = await handleDraft(post({ spot: SPOT }), withKey(fetchImpl as unknown as typeof fetch))
     const body = await res.json()
     expect([res.status, body]).toEqual([502, { error: 'gemini_bad_output' }])
-    expect(JSON.stringify(body) + errors.join('\n')).not.toContain('Jane Doe')
-  })
-
-  it.each([
-    [{ en: GOOD_NOTICE.en, es: 'Gracias. Dejaron bolsas cerca de la calle Mayor.' }],
-    [{ en: 'Bags were left near 12 main street.', es: GOOD_NOTICE.es }],
-    [{ en: 'Bags sit at 12 main way.', es: GOOD_NOTICE.es }],
-    [{ en: 'NEAR 12 MAIN STREET.', es: GOOD_NOTICE.es }],
-    [{ en: 'Bags sit at 12 The Avenue.', es: GOOD_NOTICE.es }],
-    [{ en: GOOD_NOTICE.en, es: 'Cerca de la calle La Paz 12.' }],
-  ])('answers 502 gemini_bad_output when the model writes an address in any case: %j', async (answer) => {
-    const fetchImpl = vi.fn(async () => geminiReply(answer))
-    const res = await handleDraft(post({ spot: SPOT }), withKey(fetchImpl as unknown as typeof fetch))
-    expect([res.status, await res.json()]).toEqual([502, { error: 'gemini_bad_output' }])
-  })
-
-  it('returns 200 for a normal notice that mentions the report count and the street', async () => {
-    const answer = {
-      en: 'Thank you, neighbors. Dumping was reported 12 times on this street at Plus Code 865QRCC9+23.',
-      es: 'Gracias, vecinos. Se reportó basura 12 veces en esta calle, en el Plus Code 865QRCC9+23. Por favor, ayude a mantener la calle libre de basura.',
-    }
-    const fetchImpl = vi.fn(async () => geminiReply(answer))
-    const res = await handleDraft(post({ spot: SPOT }), withKey(fetchImpl as unknown as typeof fetch))
-    expect(res.status).toBe(200)
+    expect(JSON.stringify(body) + errors.join('\n')).not.toMatch(/Jane|Walmart|9\/11/)
   })
 
   it('answers 502 with the upstream status when Gemini fails', async () => {
@@ -411,12 +346,8 @@ describe('handleDraft', () => {
     const r2 = await handleDraft(post({ spot: SPOT }), withKey(notJsonText as unknown as typeof fetch))
     expect([r2.status, await r2.json()]).toEqual([502, { error: 'gemini_bad_output' }])
 
-    const missingEs = vi.fn(async () => geminiReply({ en: 'Hi' }))
-    const r3 = await handleDraft(post({ spot: SPOT }), withKey(missingEs as unknown as typeof fetch))
-    expect([r3.status, await r3.json()]).toEqual([502, { error: 'gemini_bad_output' }])
-
     const blocked = vi.fn(async () => new Response(JSON.stringify({ promptFeedback: { blockReason: 'SAFETY' } })))
-    const r4 = await handleDraft(post({ spot: SPOT }), withKey(blocked as unknown as typeof fetch))
-    expect([r4.status, await r4.json()]).toEqual([502, { error: 'gemini_blocked' }])
+    const r3 = await handleDraft(post({ spot: SPOT }), withKey(blocked as unknown as typeof fetch))
+    expect([r3.status, await r3.json()]).toEqual([502, { error: 'gemini_blocked' }])
   })
 })

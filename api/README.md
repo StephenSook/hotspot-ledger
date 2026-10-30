@@ -29,13 +29,16 @@ Errors: `400` bad input, `405` not POST, `500 {"error":"solver_failed"}`.
 
 ## POST /api/draft (staff only)
 
-Drafts a short neighbor notice in English and Spanish for one spot, from aggregate facts only.
+Drafts a short neighbor notice in English and Spanish for one spot. **Gemini chooses, code writes:**
+Gemini picks which sentences to use and in what order from a bank the team wrote and translated, and
+code renders the notice with every number taken from the request. No word the model writes reaches a
+resident, so a draft cannot contain an invented name, address, date or number.
 
 ```json
 {"spot": {"plus_code": "865QRCC9+23", "district": "5", "items": {"tires": 11, "furniture": 9, "appliances": 3, "bags": 14, "construction": 1}, "n": 57, "recent": 9, "treatment": "sign_qr", "owner_label": "confirm"}}
 ```
 
-Answer: `{"en": "...", "es": "...", "model": "gemini-3.8-flash", "drafted_at": "2026-10-30T14:00:00.000Z", "status": "draft"}`
+Answer: `{"en": "...", "es": "...", "sentences": ["where", "total", "action", "how_to_report"], "model": "gemini-3.8-flash", "drafted_at": "2026-10-30T14:00:00.000Z", "status": "draft"}`
 
 - The notice is a draft. A staff member approves it before anything is posted.
 - Input rules (anything else is `400`): exactly these seven keys; `plus_code` a full Plus Code
@@ -44,27 +47,21 @@ Answer: `{"en": "...", "es": "...", "model": "gemini-3.8-flash", "drafted_at": "
   `commercial_check`, `cleanup`, `camera`; `owner_label` one of `city`, `cobb`, `gdot`, `private`,
   `confirm`; item counts, `n` and `recent` (reports in the last 12 months, never a date) integers
   0 to 10000, with `recent` no larger than `n`; body at most 4 KB.
-- Prompt-injection defence: no free text reaches the prompt. Every value is a number, a fixed code,
-  or a strictly patterned string. Each treatment code becomes a fixed sentence written in this repo.
-  `owner_label` is validated but not sent. No date reaches the model; counts of 100 or more are sent
-  as "over one hundred".
-- Output check before any `200`, built on what the model is given (its facts hold no names and only
-  a few numbers). Text is NFKC-normalized and stripped of zero-width characters first, so fullwidth
-  digits and no-break spaces cannot hide anything. Each language is at most 2000 characters, and the
-  answer is refused with `502 {"error":"gemini_bad_output"}` if, after removing the spot's own Plus
-  Code, it contains: a run of 3 or more digits (years, dates, phone numbers); any other Plus Code;
-  license plate wording (plate, placa, matrícula, tablilla, tag number); a street-address shape (an
-  English house number, 1 to 4 name words in the same clause and a street suffix, or Calle / Avenida
-  / Carretera / Camino followed by a number); any number that is not one of the facts (report count,
-  12-month count, item counts, district) or 12; or a capitalized word that does not start a sentence
-  and is not Mableton, Georgia, City, Ciudad, Cobb, County, Plus, Code or QR. The refused text is
-  never returned or logged.
-- Accepted residual: an all-lowercase invented street name with no number ("la calle mayor") passes.
-  Guessing names in lowercase Spanish rejected ordinary sentences ("mantener la calle libre de
-  basura"). The facts hold no places, the prompt forbids them, and a person approves every draft. A
-  test documents the residual so closing it is visible.
-- The bulk-pickup tip is added when furniture plus appliances is the largest item group; the tire
-  amnesty tip when tires are. Ties add both.
+- What the model sees: only the English text of the sentences this spot can use (`sentenceBank`), each
+  with an id. A sentence whose fact is zero is not offered, and a disposal tip is offered only when
+  its item group is the largest (bulk pickup for furniture plus appliances, tire amnesty for tires;
+  ties offer both). `owner_label` is validated but never sent.
+- What the model returns: `{"sentences": [ids]}`, constrained by a response schema whose items are
+  an enum of the sentence ids. Anything else (free text, an unknown id, an extra key, an empty list,
+  more than 20 ids) is refused with `502 {"error":"gemini_bad_output"}` and never returned or logged.
+- How code renders it (`composeNotice`): a fixed opening and closing line; ids this spot cannot use
+  and repeats are dropped; at most five optional sentences; "where", "action" and "how_to_report" are
+  always present, in that order around the model's choices. A test checks that every character of a
+  rendered notice comes from the bank.
+- Why this design: five rounds of adversarial review showed that a filter on model-written text
+  cannot be complete (a sentence-leading business name or a date built from allowed numbers always
+  found a way through, and ordinary Spanish was rejected). Constraining the output to choices closes
+  that class of problems instead of chasing it.
 
 ## POST /api/classify (staff only)
 
