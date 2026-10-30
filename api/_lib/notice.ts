@@ -185,7 +185,7 @@ export const NOTICE_PUBLIC_KEY = 'Git_pm8nClXwkEP-zqnow7I0yN6ywFus2uEaykL4eIM'
 export const MAX_TOKEN_CHARS = 1200
 
 export interface NoticePayload {
-  v: 1
+  v: 2
   /** Plus Code of the spot. */
   p: string
   /** Council district, or null. */
@@ -201,9 +201,13 @@ export interface NoticePayload {
   s: number[]
   /** Issue date, YYYY-MM-DD (UTC). */
   dt: string
+  /** Digest of the exact approved wording (wordingDigest). Binds the signature to the words, so a
+      later change to the sentence bank cannot change what an issued notice says. */
+  h: string
 }
 
-const PAYLOAD_KEYS = ['v', 'p', 'd', 't', 'n', 'r', 'i', 's', 'dt'] as const
+const PAYLOAD_KEYS = ['v', 'p', 'd', 't', 'n', 'r', 'i', 's', 'dt', 'h'] as const
+const DIGEST = /^[A-Za-z0-9_-]{22}$/
 const MAX_COUNT = 10_000
 
 export function b64urlEncode(bytes: Uint8Array): string {
@@ -230,9 +234,15 @@ function realDate(text: unknown): text is string {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === text
 }
 
-export function payloadFromNotice(spot: Spot, sentences: readonly SentenceId[], date: string): NoticePayload {
+/** First 128 bits of SHA-256 over the English and Spanish text, base64url. */
+export async function wordingDigest(en: string, es: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${en}\n${es}`))
+  return b64urlEncode(new Uint8Array(hash).slice(0, 16))
+}
+
+export function payloadFromNotice(spot: Spot, sentences: readonly SentenceId[], date: string, digest: string): NoticePayload {
   return {
-    v: 1,
+    v: 2,
     p: spot.plus_code,
     d: spot.district,
     t: spot.treatment,
@@ -241,6 +251,7 @@ export function payloadFromNotice(spot: Spot, sentences: readonly SentenceId[], 
     i: ITEM_KINDS.map((k) => spot.items[k]),
     s: sentences.map((id) => SENTENCE_IDS.indexOf(id)),
     dt: date,
+    h: digest,
   }
 }
 
@@ -263,7 +274,7 @@ export function decodePayload(text: string): NoticePayload | null {
   const r = o as Record<string, unknown>
   const keys = Object.keys(r)
   if (keys.length !== PAYLOAD_KEYS.length || !PAYLOAD_KEYS.every((k) => keys.includes(k))) return null
-  if (r.v !== 1) return null
+  if (r.v !== 2) return null
   if (typeof r.p !== 'string' || !PLUS_CODE.test(r.p)) return null
   if (r.d !== null && (typeof r.d !== 'string' || !DISTRICT.test(r.d))) return null
   if (typeof r.t !== 'string' || !(TREATMENTS as readonly string[]).includes(r.t)) return null
@@ -271,6 +282,7 @@ export function decodePayload(text: string): NoticePayload | null {
   if (!Array.isArray(r.i) || r.i.length !== ITEM_KINDS.length || !r.i.every((x) => isCount(x) && (x as number) <= (r.n as number))) return null
   if (!Array.isArray(r.s) || r.s.length < 1 || r.s.length > 20 || !r.s.every((x) => isCount(x, SENTENCE_IDS.length - 1))) return null
   if (!realDate(r.dt)) return null
+  if (typeof r.h !== 'string' || !DIGEST.test(r.h)) return null
   return r as unknown as NoticePayload
 }
 
@@ -292,7 +304,7 @@ export function renderPayload(p: NoticePayload): { en: string; es: string; sente
 
 export type VerifyResult =
   | { status: 'valid'; payload: NoticePayload; notice: { en: string; es: string; sentences: SentenceId[] } }
-  | { status: 'invalid'; reason: 'format' | 'signature' | 'payload' }
+  | { status: 'invalid'; reason: 'format' | 'signature' | 'payload' | 'wording' }
   | { status: 'unsupported' }
 
 /** Checks "<payload>.<signature>" against the city's public key with Web Crypto Ed25519. */
@@ -313,5 +325,8 @@ export async function verifyNoticeToken(token: string, publicKey: string = NOTIC
   if (!ok) return { status: 'invalid', reason: 'signature' }
   const payload = decodePayload(parts[0])
   if (!payload) return { status: 'invalid', reason: 'payload' }
-  return { status: 'valid', payload, notice: renderPayload(payload) }
+  const notice = renderPayload(payload)
+  // The words this site renders today must be the words that were signed.
+  if ((await wordingDigest(notice.en, notice.es)) !== payload.h) return { status: 'invalid', reason: 'wording' }
+  return { status: 'valid', payload, notice }
 }

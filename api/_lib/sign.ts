@@ -4,7 +4,7 @@
 // well-formed notice from the sentence bank, never text sent by a client.
 import { parseChoice, validateDraftRequest } from './draft'
 import { InputError, exactKeys, isPlainObject, json, methodNotAllowed, readEnv, readJsonBody } from './http'
-import { b64urlEncode, composeNotice, encodePayload, payloadFromNotice, type SentenceId, type Spot } from './notice'
+import { b64urlEncode, composeNotice, encodePayload, payloadFromNotice, wordingDigest, type SentenceId, type Spot } from './notice'
 import { createGateLimiters, staffGate, type GateDeps } from './staff'
 
 export const SIGN_MAX_BODY_BYTES = 4 * 1024
@@ -46,7 +46,8 @@ export async function handleSign(request: Request, deps: GateDeps = {}): Promise
 
   const now = (deps.now ?? (() => new Date()))()
   const notice = composeNotice(spot, chosen)
-  const payloadB64 = encodePayload(payloadFromNotice(spot, notice.sentences, now.toISOString().slice(0, 10)))
+  const digest = await wordingDigest(notice.en, notice.es)
+  const payloadB64 = encodePayload(payloadFromNotice(spot, notice.sentences, now.toISOString().slice(0, 10), digest))
   let signature: string
   try {
     signature = await signPayload(payloadB64, key)

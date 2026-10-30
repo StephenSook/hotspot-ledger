@@ -9,6 +9,7 @@ import {
   payloadFromNotice,
   renderPayload,
   verifyNoticeToken,
+  wordingDigest,
   type NoticePayload,
 } from '../_lib/notice'
 import { handleSign, signPayload } from '../_lib/sign'
@@ -96,7 +97,16 @@ describe('verifyNoticeToken', () => {
     const p = encodePayload(payload)
     return `${p}.${await signPayload(p, PRIV)}`
   }
-  const payload = () => payloadFromNotice(SPOT, composeNotice(SPOT, SENTENCES as never).sentences, '2026-10-30')
+  const notice = composeNotice(SPOT, SENTENCES as never)
+  let DIGEST = ''
+  beforeAll(async () => { DIGEST = await wordingDigest(notice.en, notice.es) })
+  const payload = () => payloadFromNotice(SPOT, notice.sentences, '2026-10-30', DIGEST)
+
+  it('refuses a signed notice whose wording no longer matches what this site renders', async () => {
+    // Simulates a later edit to the sentence bank: the signed digest is of different words.
+    const stale = { ...payload(), h: await wordingDigest(`${notice.en} Extra.`, notice.es) }
+    expect(await verifyNoticeToken(await token(stale), PUB)).toEqual({ status: 'invalid', reason: 'wording' })
+  })
 
   it('rejects a notice whose payload was edited after signing', async () => {
     const t = await token(payload())
@@ -122,6 +132,8 @@ describe('verifyNoticeToken', () => {
       { ...payload(), s: [99] },
       { ...payload(), dt: '2026-02-30' },
       { ...payload(), t: 'arrest' as never },
+      { ...payload(), h: 'short' },
+      { ...payload(), v: 1 as never },
     ]) {
       expect(await verifyNoticeToken(await token(bad as NoticePayload), PUB), JSON.stringify(bad)).toEqual({ status: 'invalid', reason: 'payload' })
     }

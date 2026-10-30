@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import LedgerMap from '../components/LedgerMap'
 import FieldPhoto from '../components/FieldPhoto'
 import { Frame } from '../components/hud'
@@ -46,8 +46,15 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
   const tireSpots = proposals.filter((p) => p.treatment === 'tire_play')
   const routePath: LngLat[] | undefined = route?.order.map((id) => { const c = byId.get(id)!; return [c.lng, c.lat] })
 
-  const decide = (id: string, status: Decision['status']) =>
+  // Any decision change voids that spot's draft and signature, and answers still in flight for it.
+  const epoch = useRef<Record<string, number>>({})
+  const drop = <T,>(m: Record<string, T>, id: string) => { const { [id]: _gone, ...rest } = m; return rest }
+  const decide = (id: string, status: Decision['status']) => {
+    epoch.current[id] = (epoch.current[id] ?? 0) + 1
+    setDrafts((m) => drop(m, id))
+    setSigned((m) => drop(m, id))
     setDecisions((d) => ({ ...d, [id]: { status, owner: owners[id] ?? '', at: new Date().toISOString() } }))
+  }
 
   async function makeRoute() {
     setRouteMsg('Ordering stops with OR-Tools')
@@ -66,15 +73,19 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
   }
 
   async function draft(p: Proposal) {
+    const e = epoch.current[p.cellId]
     setDrafts((d) => ({ ...d, [p.cellId]: 'Drafting' }))
-    setSigned((s) => { const { [p.cellId]: _drop, ...rest } = s; return rest })
+    setSigned((m) => drop(m, p.cellId))
     const r = await draftNotice(spotOf(p))
+    if (epoch.current[p.cellId] !== e) return
     setDrafts((d) => ({ ...d, [p.cellId]: r.ok ? r.data : explain(r.error, r.status) }))
   }
 
   async function sign(p: Proposal, d: DraftResult) {
+    const e = epoch.current[p.cellId]
     setSigned((s) => ({ ...s, [p.cellId]: 'Signing' }))
     const r = await signNotice(spotOf(p), d.sentences)
+    if (epoch.current[p.cellId] !== e) return
     setSigned((s) => ({ ...s, [p.cellId]: r.ok ? r.data : explain(r.error, r.status) }))
   }
 
@@ -205,7 +216,7 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
                       <div><span className="lbl">Español (borrador)</span><p style={{ fontSize: 12, whiteSpace: 'pre-wrap' }} lang="es">{draftState.es}</p></div>
                     </div>
                   )}
-                  {draftState && typeof draftState === 'object' && (
+                  {d?.status === 'approved' && draftState && typeof draftState === 'object' && (
                     <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
                       {!(signState && typeof signState === 'object') && (
                         <button className="btn" onClick={() => sign(p, draftState)} disabled={signState === 'Signing'}>Approve text and sign</button>

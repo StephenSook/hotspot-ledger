@@ -73,7 +73,7 @@ test('a signed notice link verifies in the browser and passes axe', async ({ pag
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto(`/#/v/${SAMPLE}`)
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('This notice is genuine.', { timeout: 30_000 })
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('The signature is valid.', { timeout: 30_000 })
   await expect(page.getByText(/Plus Code 865QRCC9\+32/).first()).toBeVisible()
   await expect(page.getByRole('link', { name: /Report dumping/ })).toHaveAttribute('href', /mableton\.gov/)
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
@@ -95,4 +95,19 @@ test('the print view carries a QR code that opens the verify link', async ({ pag
   expect(await qr.getAttribute('src')).toMatch(/^data:image\/svg\+xml/)
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
   expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([])
+})
+
+test('plan: rejecting a proposal withdraws its draft and its sign button', async ({ page }) => {
+  // The API is stubbed here so the test runs without server secrets; the real functions have their own suite.
+  await page.route('**/api/draft', (r) => r.fulfill({ json: { en: 'Draft EN', es: 'Borrador ES', sentences: ['where', 'action', 'how_to_report'], model: 'stub', drafted_at: '2026-10-30T00:00:00Z', status: 'draft' } }))
+  await page.goto('/#/plan')
+  await expect(page.getByText(/0 approved \/ \d+/)).toBeVisible({ timeout: 45_000 })
+  await page.getByLabel(/who owns the ground/i).first().selectOption('city')
+  await page.getByRole('button', { name: 'Approve', exact: true }).first().click()
+  await page.getByRole('button', { name: /Draft notice/ }).first().click()
+  const sign = page.getByRole('button', { name: 'Approve text and sign' })
+  await expect(sign).toBeVisible()
+  await page.getByRole('button', { name: 'Reject', exact: true }).first().click()
+  await expect(sign).toHaveCount(0)
+  await expect(page.getByText('Draft EN')).toHaveCount(0)
 })
