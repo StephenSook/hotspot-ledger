@@ -1,5 +1,5 @@
 import { Frame } from '../components/hud'
-import { NOTICE_PUBLIC_KEY, REPORT_URL, issuedLabel, useVerifiedNotice } from '../lib/notice'
+import { NOTICE_PUBLIC_KEY, REPORT_PHONE, REPORT_URL, issuedLabel, useVerifiedNotice } from '../lib/notice'
 
 const WHY: Record<'format' | 'signature' | 'payload' | 'wording', string> = {
   format: 'The link is incomplete or damaged.',
@@ -52,6 +52,9 @@ export default function VerifyNotice({ token }: { token: string }) {
             <a className="btn solid" style={{ height: 36, justifyContent: 'center', fontSize: 12 }} href={REPORT_URL}>
               Report dumping / Reportar basura tirada
             </a>
+            <p className="lbl" style={{ textAlign: 'center' }}>
+              Or call Code Enforcement / O llame a Cumplimiento de Códigos: <a href={`tel:${REPORT_PHONE.tel}`}>{REPORT_PHONE.label}</a>
+            </p>
             <Frame className="stack" label="Notice">
               <p style={{ fontSize: 16 }}>{state.notice.en}</p>
               <hr className="rule" />

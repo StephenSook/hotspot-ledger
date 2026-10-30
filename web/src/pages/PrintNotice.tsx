@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { issuedLabel, useVerifiedNotice, verifyUrl } from '../lib/notice'
+import { REPORT_PHONE, issuedLabel, useVerifiedNotice, verifyUrl } from '../lib/notice'
 
 /** A printable letter-size notice. Only a token that verifies can be printed. */
 export default function PrintNotice({ token }: { token: string }) {
@@ -47,6 +47,7 @@ export default function PrintNotice({ token }: { token: string }) {
           <div className="stack" style={{ gap: 4 }}>
             <strong>Scan to check this notice is real and to report dumping.</strong>
             <span lang="es">Escanee para confirmar que este aviso es real y para reportar basura tirada.</span>
+            <span>Code Enforcement / Cumplimiento de Códigos: {REPORT_PHONE.label}</span>
             <span className="sheet-small">Issued {issuedLabel(p.dt, 'en')} / Emitido el {issuedLabel(p.dt, 'es')}. Signed with Ed25519. Prototype, Georgia 311 Challenge 2026.</span>
           </div>
         </footer>

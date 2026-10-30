@@ -5,6 +5,8 @@ export { NOTICE_PUBLIC_KEY, wordingDigest } from '../../../api/_lib/notice'
 
 /** Where a resident reports dumping: the city's own Code Enforcement page (Submit a Complaint). */
 export const REPORT_URL = 'https://www.mableton.gov/1201/Code-Enforcement-Department'
+/** Code Enforcement's phone, as listed under Contact Us on that page (read Oct 30, 2026). */
+export const REPORT_PHONE = { label: '404-590-2511', tel: '+14045902511' }
 
 export type NoticeState = { status: 'checking' } | VerifyResult
 
