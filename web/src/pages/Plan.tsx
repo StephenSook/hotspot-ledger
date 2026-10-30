@@ -7,15 +7,13 @@ import { draftNotice, explain, getStaffToken, orderStops, setStaffToken, type Dr
 import { int } from '../lib/format'
 import { STAR, TREATMENT_LABEL, earliestAmnesty, isoWeek, propose, starReimbursable, weeklyPlan, type Proposal } from '../lib/plan'
 import { useStored } from '../lib/store'
+import { csv } from '../lib/csv'
 
 type Owner = '' | 'city' | 'cobb' | 'gdot' | 'private'
 const OWNER_LABEL: Record<Exclude<Owner, ''>, string> = { city: 'City of Mableton', cobb: 'Cobb County DOT', gdot: 'Georgia DOT', private: 'Private owner' }
 type Decision = { status: 'approved' | 'deferred' | 'rejected'; owner: Owner; at: string }
 type TireLog = { tires: number; pte: number; manifest: string; cost: number }
 
-function csv(rows: (string | number)[][]): string {
-  return rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
-}
 
 export default function Plan({ data, pinned }: { data: LedgerData; pinned: string[] }) {
   const { cells } = data
