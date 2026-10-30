@@ -105,16 +105,22 @@ describe.each(CASES)('staff gate on /api/$name', ({ handle, body, reply }) => {
     expect(JSON.stringify(init)).not.toContain(TOKEN)
   })
 
-  it('shared NAT: 10 wrong-token requests do not lock out staff with the correct token', async () => {
-    const { fetchImpl, deps: d } = deps(FULL_ENV, reply)
+  it('a failed-auth lockout answers a correct token exactly like a wrong one, until the window passes', async () => {
+    const { fetchImpl, deps: base } = deps(FULL_ENV, reply)
+    let nowMs = 0
+    const d = { ...base, now: () => new Date(nowMs) }
     for (let i = 0; i < FAILED_AUTH_PER_MINUTE; i++) {
       expect((await handle(request(body, stranger), d)).status).toBe(401)
     }
     const guessing = await handle(request(body, stranger), d)
+    const rightGuess = await handle(request(body, staff), d)
     expect([guessing.status, await guessing.json()]).toEqual([429, { error: 'rate_limited' }])
+    expect([rightGuess.status, await rightGuess.json()]).toEqual([429, { error: 'rate_limited' }])
+    expect(rightGuess.headers.get('retry-after')).toBe(guessing.headers.get('retry-after'))
+    expect(fetchImpl).not.toHaveBeenCalled()
 
-    const staffRes = await handle(request(body, staff), d)
-    expect(staffRes.status).toBe(200)
+    nowMs = 60_001
+    expect((await handle(request(body, staff), d)).status).toBe(200)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
@@ -152,6 +158,15 @@ describe('createRateLimiter', () => {
     expect(limiter.hit('a', 1_000)).toBe(0)
     expect(limiter.hit('a', 2_000)).toBe(58)
     expect(limiter.hit('a', 60_001)).toBe(0)
+  })
+  it('blocked() reports the same wait as hit() without spending the budget', () => {
+    const limiter = createRateLimiter(1, 60_000)
+    expect(limiter.blocked('a', 0)).toBe(0)
+    expect(limiter.blocked('a', 0)).toBe(0)
+    expect(limiter.hit('a', 0)).toBe(0)
+    expect(limiter.blocked('a', 30_000)).toBe(30)
+    expect(limiter.hit('a', 30_000)).toBe(30)
+    expect(limiter.blocked('a', 60_001)).toBe(0)
   })
   it('keeps memory bounded by evicting the least recent address', () => {
     const limiter = createRateLimiter(1, 60_000, 2)

@@ -28,6 +28,8 @@ export function tokensMatch(provided: string, expected: string): boolean {
 export interface RateLimiter {
   /** Records one request for `key`; returns seconds to wait if it is over the limit, else 0. */
   hit(key: string, nowMs: number): number
+  /** Same answer as `hit`, without recording anything. */
+  blocked(key: string, nowMs: number): number
 }
 
 /**
@@ -37,12 +39,18 @@ export interface RateLimiter {
  */
 export function createRateLimiter(limit = 10, windowMs = 60_000, maxKeys = 5_000): RateLimiter {
   const hits = new Map<string, number[]>()
+  const waitFor = (recent: number[], nowMs: number) =>
+    recent.length >= limit ? Math.max(1, Math.ceil((recent[0] + windowMs - nowMs) / 1000)) : 0
   return {
+    blocked(key, nowMs) {
+      return waitFor((hits.get(key) ?? []).filter((t) => nowMs - t < windowMs), nowMs)
+    },
     hit(key, nowMs) {
       const recent = (hits.get(key) ?? []).filter((t) => nowMs - t < windowMs)
-      if (recent.length >= limit) {
+      const wait = waitFor(recent, nowMs)
+      if (wait > 0) {
         hits.set(key, recent)
-        return Math.max(1, Math.ceil((recent[0] + windowMs - nowMs) / 1000))
+        return wait
       }
       recent.push(nowMs)
       hits.delete(key) // re-insert so Map order tracks recency
@@ -57,9 +65,15 @@ export function createRateLimiter(limit = 10, windowMs = 60_000, maxKeys = 5_000
 }
 
 /**
- * Two separate budgets per client address. Wrong-token requests only ever touch `failed`, and a
- * request with the valid token only ever touches `authorized`, so strangers guessing from a shared
- * address (city hall Wi-Fi, a phone carrier's NAT) cannot lock out a staff member.
+ * Two separate budgets per client address. Wrong-token requests spend `failed`; valid-token
+ * requests spend `authorized`, so heavy staff use never counts as guessing.
+ *
+ * While an address is over its failed-auth budget, every request from it gets the same 429,
+ * including one carrying the valid token. Otherwise a lockout would answer 429 to wrong guesses
+ * and 200 to the right one, which tells a guesser the answer at any speed. The cost: a stranger
+ * guessing from a shared address (city hall Wi-Fi, a carrier NAT) can delay staff on that address
+ * until the one-minute window passes. Guessing itself is hopeless, because STAFF_TOKEN must be at
+ * least 32 characters.
  */
 export interface GateLimiters {
   failed: RateLimiter
@@ -89,8 +103,9 @@ const tooMany = (wait: number) => json(429, { error: 'rate_limited' }, { 'Retry-
 
 /**
  * Runs the checks that come after the method check: staff auth configured (503), then the token.
- * A wrong or missing token answers 401, or 429 once that address has used its failed-auth budget.
- * A valid token answers 429 only when the address has used its authorized budget.
+ * An address that has used its failed-auth budget gets 429 before the token is even compared.
+ * Otherwise a wrong or missing token answers 401, and a valid token answers 429 only when the
+ * address has used its authorized budget.
  * Returns a Response to send, or null when the caller may proceed.
  */
 export function staffGate(request: Request, limiters: GateLimiters, deps: GateDeps = {}): Response | null {
@@ -99,6 +114,9 @@ export function staffGate(request: Request, limiters: GateLimiters, deps: GateDe
 
   const key = clientKey(request)
   const nowMs = (deps.now ?? (() => new Date()))().getTime()
+  const locked = limiters.failed.blocked(key, nowMs)
+  if (locked > 0) return tooMany(locked)
+
   const provided = request.headers.get(STAFF_HEADER) ?? ''
   const valid = provided.length > 0 && provided.length <= MAX_HEADER_CHARS && tokensMatch(provided, expected)
 

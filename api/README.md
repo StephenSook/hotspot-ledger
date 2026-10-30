@@ -94,11 +94,15 @@ Checks, in this order:
 
 - The token is compared with `crypto.timingSafeEqual`. A wrong length is refused after an equal amount
   of comparison work, so timing reveals at most that the length differs.
-- Two separate budgets per client address. Wrong or missing tokens spend only the failed-auth budget
-  (10 a minute), which throttles guessing. A valid token spends only the authorized budget (30 a
-  minute) and is never blocked by failed attempts, so strangers on a shared address (city hall Wi-Fi,
-  a phone carrier's NAT) cannot lock a staff member out. The client address is the first
-  `x-forwarded-for` entry, which Vercel sets itself and does not let clients spoof.
+- Two separate budgets per client address. Wrong or missing tokens spend the failed-auth budget
+  (10 a minute), which throttles guessing. A valid token spends the authorized budget (30 a minute),
+  so heavy staff use never counts as guessing.
+- While an address is over its failed-auth budget, every request from it gets the same 429, valid
+  token included, and the token is not even compared. Letting the right token through would answer
+  429 to wrong guesses and 200 to the right one, which tells a guesser the answer at any speed. The
+  cost: a stranger guessing from a shared address (city hall Wi-Fi, a carrier NAT) can delay staff on
+  that address for up to one minute. The client address is the first `x-forwarded-for` entry, which
+  Vercel sets itself and does not let clients spoof.
 - The rate limit is best effort: it lives in one function instance's memory, serverless instances do
   not share memory, and a cold start resets it. It protects the free Gemini quota from a runaway
   client, not from a determined attacker. A shared store would be needed for a hard limit.
