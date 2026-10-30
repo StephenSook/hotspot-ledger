@@ -143,7 +143,8 @@ describe('sentenceBank', () => {
     const bank = sentenceBank(SPOT)
     expect(bank.where!.en).toBe('Dumping keeps coming back at Plus Code 865QRCC9+23, in council district 5.')
     expect(bank.where!.es).toBe('La basura tirada sigue apareciendo en el Plus Code 865QRCC9+23, en el distrito 5.')
-    expect(bank.total!.en).toBe('It has been reported 57 times since 2021.')
+    expect(bank.total!.en).toBe('Dumping at this spot has been reported 57 times since 2021.')
+    expect(bank.total!.es).toBe('La basura tirada en este lugar se ha reportado 57 veces desde 2021.')
     expect(bank.bulky!.en).toBe('9 reports mention furniture, and 3 mention appliances.')
     expect(bank.bulky!.es).toBe('9 reportes mencionan muebles, y 3 mencionan electrodomésticos.')
     const one = sentenceBank({ ...SPOT, district: null, recent: 1, items: { ...SPOT.items, construction: 1 } })
@@ -169,6 +170,17 @@ describe('sentenceBank', () => {
     expect(out.en).toContain('1 report mentions tires. 9 reports were made in the last 12 months.')
     expect(out.en).not.toMatch(/those|esos/)
     expect(out.es).toContain('Se hicieron 9 reportes en los últimos 12 meses.')
+  })
+  it('never starts a counted sentence with a pronoun, so no order changes what a number refers to', () => {
+    // Codex round 7 reproduction: after the bulk-pickup tip, "It has been reported 3 times" read as the pickup.
+    const spot: Spot = { ...SPOT, n: 3, recent: 1, items: { tires: 0, furniture: 2, appliances: 2, bags: 0, construction: 0 }, treatment: 'cleanup' }
+    for (const lang of ['en', 'es'] as const) {
+      for (const [id, line] of Object.entries(sentenceBank(spot))) {
+        expect(line![lang], `${id}.${lang}`).not.toMatch(/^(It|They|This|That|Those|These|Esto|Eso|Esos|Esas|Estos|Estas)\b/)
+      }
+    }
+    const out = composeNotice(spot, ['where', 'action', 'tip_bulk', 'total', 'how_to_report'])
+    expect(out.en).toContain('how to schedule it. Dumping at this spot has been reported 3 times since 2021.')
   })
   it('turns every treatment code into its fixed sentence in both languages', () => {
     for (const treatment of TREATMENTS) {
@@ -215,7 +227,7 @@ describe('composeNotice', () => {
     expect(out.sentences).toEqual(['where', 'total', 'recent', 'action', 'bags', 'how_to_report'])
     expect(out.en).toBe(
       'Thank you, neighbors. Dumping keeps coming back at Plus Code 865QRCC9+23, in council district 5. ' +
-        'It has been reported 57 times since 2021. 9 reports were made in the last 12 months. ' +
+        'Dumping at this spot has been reported 57 times since 2021. 9 reports were made in the last 12 months. ' +
         'The city is promoting tire amnesty so old tires have a proper place to go. 14 reports mention bags of trash. ' +
         'To report dumping, scan the QR code on the city sign at this spot or report it on the City of Mableton website. ' +
         'Thank you for helping keep this area clean.',

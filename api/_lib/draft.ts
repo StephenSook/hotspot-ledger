@@ -153,8 +153,9 @@ export function sentenceBank(s: Spot): Partial<Record<SentenceId, Bilingual>> {
       es: `La basura tirada sigue apareciendo en el Plus Code ${s.plus_code}${s.district ? `, en el distrito ${s.district}` : ''}.`,
     },
     total: {
-      en: `It has been reported ${s.n} ${plural(s.n, 'time', 'times')} since 2021.`,
-      es: `Se ha reportado ${s.n} ${plural(s.n, 'vez', 'veces')} desde 2021.`,
+      // Names its subject: the model may place it after a tip, where "it" would mean the pickup.
+      en: `Dumping at this spot has been reported ${s.n} ${plural(s.n, 'time', 'times')} since 2021.`,
+      es: `La basura tirada en este lugar se ha reportado ${s.n} ${plural(s.n, 'vez', 'veces')} desde 2021.`,
     },
     action: ACTION[s.treatment],
     no_blame: {
