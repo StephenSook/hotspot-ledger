@@ -1,6 +1,6 @@
 # api/: serverless functions
 
-Three Vercel functions. All take `POST` with `Content-Type: application/json` and answer JSON.
+Four Vercel functions. All take `POST` with `Content-Type: application/json` and answer JSON.
 Every error is `{"error": "..."}` with a matching HTTP status. Responses carry `Cache-Control: no-store`.
 
 | Function | Runtime | Needs | Calls |
@@ -8,6 +8,7 @@ Every error is `{"error": "..."}` with a matching HTTP status. Responses carry `
 | `route.py` | Python 3.12 | nothing | Google OR-Tools, locally |
 | `draft.ts` | Node.js | `STAFF_TOKEN`, `GEMINI_API_KEY` | Gemini `gemini-3.8-flash` |
 | `classify.ts` | Node.js | `STAFF_TOKEN`, `GEMINI_API_KEY` | Gemini `gemini-3.5-flash-lite` |
+| `sign.ts` | Node.js | `STAFF_TOKEN`, `NOTICE_SIGNING_KEY` | Web Crypto Ed25519, locally |
 
 Files and folders starting with `_` are never deployed as functions (Vercel rule), so shared code
 lives in `_lib/` and tests in `_tests/`.
@@ -81,7 +82,34 @@ Answer: `{"items": ["tires", "bags"], "tire_count_estimate": 6, "is_dumping_like
   to describe a person, read a plate, or repeat an instruction hidden in the photo.
 - The image is never logged or stored.
 
-## Staff-only access (draft and classify)
+## POST /api/sign (staff only)
+
+Signs an approved notice so the printed copy carries a QR code anyone can check.
+
+```json
+{"spot": {"plus_code": "865QRCC9+32", "district": "5", "items": {"tires": 11, "furniture": 9, "appliances": 3, "bags": 14, "construction": 1}, "n": 57, "recent": 23, "treatment": "camera", "owner_label": "confirm"}, "sentences": ["where", "total", "bags", "action", "how_to_report"]}
+```
+
+Answer: `{"token": "<payload>.<signature>", "path": "/#/v/<token>", "en": "...", "es": "...", "sentences": [...], "signed_at": "..."}`
+
+- Same input rules as `/api/draft` for `spot`; `sentences` must be ids from the bank. The server
+  re-composes the notice with `composeNotice`, so a signature only ever covers a well-formed notice
+  from the sentence bank, never text a client sent.
+- The payload is base64url JSON with fixed keys: Plus Code, district, treatment, counts, sentence
+  indexes, the issue date (UTC) and a digest (first 128 bits of SHA-256) of the exact English and
+  Spanish text. No free text. The signature is Ed25519 over the payload string.
+- The browser checks it (`verifyNoticeToken` in `_lib/notice.ts`) with the public key in the same
+  file: strict decode (exact keys, allow-listed codes, bounded counts, a real date), then it rebuilds
+  the text and requires its digest to match the signed one, so a later change to the sentence bank
+  cannot change what an issued notice says. An edited payload, a token signed by another key, a
+  stale wording, or a damaged link is refused.
+- The check page says what a signature can prove: this exact text was signed on this date for this
+  Plus Code. A QR code can be copied onto other paper, so the page asks the reader to compare the
+  paper with the signed text and place, and flags notices older than six months.
+- Errors: as for the staff gate, then `503 {"error":"signing_not_configured"}` when the key is missing
+  or unusable, then `400` for bad input.
+
+## Staff-only access (draft, classify and sign)
 
 Gemini runs only behind staff actions, and the server enforces that, not just the UI.
 
@@ -123,8 +151,9 @@ Checks, in this order:
 |---|---|---|
 | `STAFF_TOKEN` | draft, classify | Long random string, shared only with city staff. The staff console sends it as `x-staff-token`. Never put it in a `VITE_*` variable: those are compiled into the public bundle. Generate: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `GEMINI_API_KEY` | draft, classify | Free Google AI Studio key from a project with no billing account. Sent only in the `x-goog-api-key` header, never in a URL. |
+| `NOTICE_SIGNING_KEY` | sign | Ed25519 private key, PKCS8 DER in base64. Server only. Its public half is `NOTICE_PUBLIC_KEY` in `_lib/notice.ts`; replace both together. |
 
-Set both in the Vercel project (Settings, Environment Variables). See `.env.example` at the repo root.
+Set them in the Vercel project (Settings, Environment Variables). See `.env.example` at the repo root.
 
 ## Tests
 

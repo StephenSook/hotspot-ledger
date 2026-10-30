@@ -14,7 +14,7 @@ Built for the Georgia 311 Challenge 2026 (Track 3, Tiny Desk, Civic Style) by St
 | Dumping reports inside today's city limits since 2021 | **1,841** (Cobb County SeeClickFix, clipped to the official city polygon) |
 | Recurring spots (3+ reports in a ~150 m cell) | **187**, holding about 70% of reports |
 | Closed reports followed by a new report at the same spot within 12 weeks | **30%** |
-| Places with dumping, estimated by capture-recapture | **~1,256**, against 571 reported from 2021 to 2025 |
+| Places with dumping, estimated by capture-recapture | **~1,256** (a rough size), against 571 reported from 2021 to 2025 |
 | Where-next model, trained 2021-2025, tested on 2026's new spots | **77 to 85%** of new spots in its top 30% (random 30%, "near old hotspots" 68%, shuffled labels 25 to 51%) |
 
 Every number is recomputed by the pipeline and shown with its method on the app's Evidence page.
@@ -29,6 +29,7 @@ web/       Vite + React + TS     deck.gl 3D map with no third-party tiles, five 
 api/       Vercel functions      route.py (Google OR-Tools stop order)
                                  draft.ts (Gemini notice drafts, staff only)
                                  classify.ts (Gemini pile check on a face-blurred photo, staff only)
+                                 sign.ts (Ed25519-signed notice for a printable QR check, staff only)
 ```
 
 Google technology: Yggdrasil Decision Forests, MediaPipe Tasks, Gemini API, OR-Tools, Data Commons, Plus Codes.
@@ -47,7 +48,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e
 uv run --with pytest --with-requirements requirements.txt pytest -q api/_tests
 ```
 
-Staff features (Gemini drafts and the photo check) need two server environment variables: `STAFF_TOKEN`, a shared secret staff type into the Plan page, and `GEMINI_API_KEY` (a free Google AI Studio key from a project with **no billing**) Without them those two functions answer `503` (`staff_auth_not_configured` or `gemini_not_configured`) and the app says so; everything else works.
+Staff features need server environment variables: `STAFF_TOKEN`, a shared secret staff type into the Plan page; `GEMINI_API_KEY` (a free Google AI Studio key from a project with **no billing**) for drafts and the photo check; and `NOTICE_SIGNING_KEY` (an Ed25519 private key) for signed notices. Without them those functions answer `503` (`staff_auth_not_configured`, `gemini_not_configured` or `signing_not_configured`) and the app says so; everything else works. See `.env.example`.
 
 ## Privacy and data rules
 
@@ -58,6 +59,7 @@ Staff features (Gemini drafts and the photo check) need two server environment v
 - Field photos are face-blurred on the device before they leave it.
 - Gemini is used only behind staff actions, because free-tier terms bar services likely to be used by people under 18.
 - Nothing is approved until a person confirms who owns the ground.
+- A printed notice carries a QR code. Scanning it checks an Ed25519 signature in the resident's own browser against the public key in `api/_lib/notice.ts`, then rebuilds the text from the signed data, so an edited notice fails. The private key exists only in the server environment.
 
 ## Data and credits
 

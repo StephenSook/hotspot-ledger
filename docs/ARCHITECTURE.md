@@ -97,6 +97,9 @@ two jobs that need a server (route ordering and Gemini drafting), and nothing id
     route order, bilingual notice drafts, STAR tire-grant evidence log and 90-day calendar.
   - **Camera:** the space-time cube for reviewing a clip, with the left-behind signature.
   - **Evidence:** sources, licenses, privacy rules, method notes, every number's origin.
+  - **Notice check (`#/v/<token>`) and print view (`#/print/<token>`):** a signed notice prints as a
+    letter-size bilingual sheet with a QR code; scanning it checks the signature in the resident's
+    browser and links to the city's Code Enforcement complaint page.
 
 ## Serverless functions (Vercel)
 
@@ -104,6 +107,7 @@ two jobs that need a server (route ordering and Gemini drafting), and nothing id
 |---|---|---|
 | `api/route.py` | Orders a crew's stops with Google OR-Tools (traveling-salesman on haversine distances) | nothing |
 | `api/draft.ts` | Drafts an English and Spanish notice for an approved spot. Gemini (`gemini-3.8-flash`) chooses which sentences to use and their order; code writes the notice from a bilingual sentence bank and fills every number | `STAFF_TOKEN`, `GEMINI_API_KEY` (free tier, project with no billing) |
+| `api/sign.ts` | Signs an approved notice. Re-composes the text from the sentence bank, signs a codes-only payload with Ed25519, and returns a token for the QR code | `STAFF_TOKEN`, `NOTICE_SIGNING_KEY` (PKCS8, base64; server only) |
 | `api/classify.ts` | Classifies a face-blurred field photo into tires / furniture / bags / construction with `gemini-3.5-flash-lite` | `STAFF_TOKEN`, `GEMINI_API_KEY` |
 
 When the key is missing the functions answer `503 {"error":"gemini_not_configured"}` and the UI
@@ -118,6 +122,7 @@ says so plainly. Nothing is faked.
 | No resident ever talks to free-tier Gemini | Gemini calls exist only behind staff actions; text sent is aggregate facts; photos are face-blurred on device first |
 | No model-written word reaches a resident | Gemini returns sentence ids from an enum; code renders the notice from sentences the team wrote and translated |
 | Human in the loop | Notices and plans are drafts until a person approves them |
+| A printed notice cannot be edited and still pass | The QR code carries a codes-only payload and an Ed25519 signature; the check page verifies it in the browser with the public key in `api/_lib/notice.ts` and rebuilds the text from the signed data |
 | No license-plate reading | no LPR code exists; the camera page detects objects and people as boxes only |
 | Credit sources | SeeClickFix (CC BY-NC-SA 3.0 US), OpenStreetMap contributors (ODbL), Cobb County GIS, ACS via Google Data Commons |
 
@@ -134,7 +139,8 @@ Yggdrasil Decision Forests, MediaPipe Tasks (face detector, object detector), Ge
 - `web`: oxlint, `tsgo` typecheck, vitest (planner rules, CSV safety, camera analysis),
   `vite build`, Playwright end-to-end with an axe accessibility scan on every page.
 - `api`: pytest for the OR-Tools route, a strict `tsc` typecheck of the functions, vitest for the
-  Gemini and staff-gate functions.
+  Gemini, signing and staff-gate functions (a tampered or foreign-key token must fail).
+- The web suite also opens a real signed sample notice, an edited copy (refused) and the print view.
 - The same Playwright suite runs against the live site with `BASE_URL=<url> pnpm e2e`.
 
 ## Data refresh
@@ -160,4 +166,3 @@ workflow runs in the repository. Raw data stays on the maintainer's machine in t
   shows counts and the time scrubber; it does not claim statistical significance per spot.
 - Grouping residents' public comments from council minutes by theme with Jigsaw's Sensemaking tools.
 - A QR reporting page in English and Spanish for each city sign, and spoken reports.
-- A public page where a resident can verify that a printed notice is real.
