@@ -30,14 +30,49 @@ _last_request = 0.0
 
 
 HASH_KEY = CACHE / "hash_key"
+# A fingerprint of the key (an HMAC of a fixed label, so it reveals nothing about the key). It binds
+# the cache to the key that made its pseudonyms: a different key would silently split one account
+# into two and corrupt every account-based number.
+KEY_ID = CACHE / "hash_key.id"
+
+
+class PseudonymKeyError(RuntimeError):
+    """The pseudonym key is missing, malformed, or not the key the cache was made with."""
+
+
+def _fingerprint(key: bytes) -> str:
+    return hmac.new(key, b"hotspot-ledger pseudonym key id", hashlib.sha256).hexdigest()[:16]
+
+
+def _cache_is_keyed() -> bool:
+    if not ISSUES_CACHE.exists():
+        return False
+    return any(len(r.get("reporter_hash", "")) == 16 for r in json.loads(ISSUES_CACHE.read_text()))
 
 
 def _key() -> bytes:
-    if not HASH_KEY.exists():
-        CACHE.mkdir(parents=True, exist_ok=True)
-        HASH_KEY.write_bytes(os.urandom(32))
-        HASH_KEY.chmod(0o600)
-    return HASH_KEY.read_bytes()
+    """Load the pseudonym key, failing closed. A new key is made only for a cache with no keyed rows."""
+    if HASH_KEY.exists():
+        key = HASH_KEY.read_bytes()
+        if len(key) != 32:
+            raise PseudonymKeyError(f"{HASH_KEY} must hold exactly 32 bytes; restore the original key")
+        if KEY_ID.exists():
+            if KEY_ID.read_text().strip() != _fingerprint(key):
+                raise PseudonymKeyError(f"{HASH_KEY} is not the key this cache was made with; restore the original key")
+        else:
+            KEY_ID.write_text(_fingerprint(key))
+        return key
+    if _cache_is_keyed():
+        raise PseudonymKeyError(
+            f"{ISSUES_CACHE} holds keyed pseudonyms but {HASH_KEY} is missing. Restore the key, or delete "
+            "the cache and run a full fetch so every report is pseudonymized with one new key."
+        )
+    CACHE.mkdir(parents=True, exist_ok=True)
+    key = os.urandom(32)
+    HASH_KEY.write_bytes(key)
+    HASH_KEY.chmod(0o600)
+    KEY_ID.write_text(_fingerprint(key))
+    return key
 
 
 def pseudonym(legacy: str) -> str:
@@ -55,9 +90,14 @@ def reporter_fields(rep: dict | None) -> dict:
 
 
 def rekey_cache() -> int:
-    """One-time upgrade: replace unkeyed 12-character hashes in the cache with keyed pseudonyms."""
+    """One-time upgrade: replace unkeyed 12-character hashes in the cache with keyed pseudonyms.
+
+    Runs at the start of every pipeline run, so it also checks the key first: a missing or
+    different key stops the run here instead of corrupting account-based numbers later.
+    """
     if not ISSUES_CACHE.exists():
         return 0
+    _key()
     rows = json.loads(ISSUES_CACHE.read_text())
     changed = 0
     for r in rows:
