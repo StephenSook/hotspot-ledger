@@ -207,7 +207,7 @@ export interface NoticePayload {
 }
 
 const PAYLOAD_KEYS = ['v', 'p', 'd', 't', 'n', 'r', 'i', 's', 'dt', 'h'] as const
-const DIGEST = /^[A-Za-z0-9_-]{22}$/
+export const DIGEST = /^[A-Za-z0-9_-]{22}$/
 const MAX_COUNT = 10_000
 
 export function b64urlEncode(bytes: Uint8Array): string {

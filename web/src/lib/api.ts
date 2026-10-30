@@ -59,13 +59,14 @@ export const classifyPhoto = (image: string) => post<ClassifyResult>('/api/class
 export interface SignResult { token: string; path: string; en: string; es: string; sentences: string[]; signed_at: string }
 export const signNotice = (spot: {
   plus_code: string; district: string | null; items: Record<string, number>; n: number; recent: number; treatment: string; owner_label: string
-}, sentences: string[]) => post<SignResult>('/api/sign', { spot, sentences })
+}, sentences: string[], digest: string) => post<SignResult>('/api/sign', { spot, sentences, digest })
 
 export function explain(error: string, status: number): string {
   if (error === 'gemini_not_configured') {
     return 'Gemini is not switched on for this deployment yet. It needs a free Google AI Studio key from a project with no billing, added as a server secret. Nothing else on this page depends on it.'
   }
   if (error === 'signing_not_configured') return 'Notice signing is not switched on for this deployment yet (NOTICE_SIGNING_KEY is missing).'
+  if (error === 'wording_changed') return 'The notice wording changed since this draft. Draft it again and review it before signing.'
   if (error === 'staff_only') return 'Staff only. Paste the staff token in the Plan page header first.'
   if (error === 'staff_auth_not_configured') return 'The staff token is not set on this deployment yet, so the Gemini functions stay locked.'
   if (error === 'rate_limited') return 'Too many requests in a minute. Wait a moment and try again.'

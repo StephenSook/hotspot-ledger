@@ -29,11 +29,14 @@ const SPOT: Spot = {
 const SENTENCES = ['where', 'total', 'bags', 'action', 'no_blame', 'how_to_report']
 let PRIV = ''
 let PUB = ''
+let REVIEWED = ''
 
 beforeAll(async () => {
   const kp = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
   PRIV = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey))))
   PUB = b64urlEncode(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey)))
+  const shown = composeNotice(SPOT, SENTENCES as never)
+  REVIEWED = await wordingDigest(shown.en, shown.es)
 })
 
 const post = (body: unknown, headers: Record<string, string> = { 'content-type': 'application/json', 'x-staff-token': TOKEN }) =>
@@ -42,7 +45,7 @@ const deps = (env: Record<string, string | undefined>) => ({ env: (n: string) =>
 
 describe('handleSign', () => {
   it('signs a notice that the public key verifies and that re-renders to the same text', async () => {
-    const res = await handleSign(post({ spot: SPOT, sentences: SENTENCES }), deps({ STAFF_TOKEN: TOKEN, NOTICE_SIGNING_KEY: PRIV }))
+    const res = await handleSign(post({ spot: SPOT, sentences: SENTENCES, digest: REVIEWED }), deps({ STAFF_TOKEN: TOKEN, NOTICE_SIGNING_KEY: PRIV }))
     expect(res.status).toBe(200)
     const body = await res.json()
     const expected = composeNotice(SPOT, SENTENCES as never)
@@ -59,34 +62,44 @@ describe('handleSign', () => {
 
   it('answers 405, 503 without staff auth or a signing key, 401 for a wrong token, 400 for bad input', async () => {
     expect((await handleSign(new Request('https://hotspot.test/api/sign'), deps({}))).status).toBe(405)
-    const noStaff = await handleSign(post({ spot: SPOT, sentences: SENTENCES }), deps({ NOTICE_SIGNING_KEY: PRIV }))
+    const noStaff = await handleSign(post({ spot: SPOT, sentences: SENTENCES, digest: REVIEWED }), deps({ NOTICE_SIGNING_KEY: PRIV }))
     expect([noStaff.status, await noStaff.json()]).toEqual([503, { error: 'staff_auth_not_configured' }])
-    const noKey = await handleSign(post({ spot: SPOT, sentences: SENTENCES }), deps({ STAFF_TOKEN: TOKEN }))
+    const noKey = await handleSign(post({ spot: SPOT, sentences: SENTENCES, digest: REVIEWED }), deps({ STAFF_TOKEN: TOKEN }))
     expect([noKey.status, await noKey.json()]).toEqual([503, { error: 'signing_not_configured' }])
-    const wrong = await handleSign(post({ spot: SPOT, sentences: SENTENCES }, { 'content-type': 'application/json', 'x-staff-token': 'nope' }), deps({ STAFF_TOKEN: TOKEN, NOTICE_SIGNING_KEY: PRIV }))
+    const wrong = await handleSign(post({ spot: SPOT, sentences: SENTENCES, digest: REVIEWED }, { 'content-type': 'application/json', 'x-staff-token': 'nope' }), deps({ STAFF_TOKEN: TOKEN, NOTICE_SIGNING_KEY: PRIV }))
     expect(wrong.status).toBe(401)
     const env = deps({ STAFF_TOKEN: TOKEN, NOTICE_SIGNING_KEY: PRIV })
     for (const bad of [
       { spot: SPOT },
-      { spot: SPOT, sentences: SENTENCES, text: 'free text' },
-      { spot: SPOT, sentences: ['where', 'Walmart is helping'] },
-      { spot: { ...SPOT, n: 3, items: { ...SPOT.items, tires: 4 } }, sentences: SENTENCES },
-      { spot: { ...SPOT, plus_code: '123 Main St' }, sentences: SENTENCES },
+      { spot: SPOT, sentences: SENTENCES },
+      { spot: SPOT, sentences: SENTENCES, digest: 'nope' },
+      { spot: SPOT, sentences: SENTENCES, digest: REVIEWED, text: 'free text' },
+      { spot: SPOT, sentences: ['where', 'Walmart is helping'], digest: REVIEWED },
+      { spot: { ...SPOT, n: 3, items: { ...SPOT.items, tires: 4 } }, sentences: SENTENCES, digest: REVIEWED },
+      { spot: { ...SPOT, plus_code: '123 Main St' }, sentences: SENTENCES, digest: REVIEWED },
     ]) {
       const r = await handleSign(post(bad), env)
       expect(r.status, JSON.stringify(bad)).toBe(400)
     }
   })
 
+  it('refuses with 409 when the words reviewed are not the words the bank renders now', async () => {
+    // Simulates a sentence-bank change between drafting and signing: the reviewed digest is of other words.
+    const shown = composeNotice(SPOT, SENTENCES as never)
+    const stale = await wordingDigest(shown.en.replace('57 times', '58 times'), shown.es)
+    const res = await handleSign(post({ spot: SPOT, sentences: SENTENCES, digest: stale }), deps({ STAFF_TOKEN: TOKEN, NOTICE_SIGNING_KEY: PRIV }))
+    expect([res.status, await res.json()]).toEqual([409, { error: 'wording_changed' }])
+  })
+
   it('answers 503 rather than 500 when the configured key is not a usable Ed25519 key', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const res = await handleSign(post({ spot: SPOT, sentences: SENTENCES }), deps({ STAFF_TOKEN: TOKEN, NOTICE_SIGNING_KEY: 'bm90LWEta2V5' }))
+    const res = await handleSign(post({ spot: SPOT, sentences: SENTENCES, digest: REVIEWED }), deps({ STAFF_TOKEN: TOKEN, NOTICE_SIGNING_KEY: 'bm90LWEta2V5' }))
     expect([res.status, await res.json()]).toEqual([503, { error: 'signing_not_configured' }])
   })
 
   it('the deployed default export reads its settings from the environment', async () => {
     vi.stubEnv('STAFF_TOKEN', '')
-    const res = await signFunction.fetch(post({ spot: SPOT, sentences: SENTENCES }))
+    const res = await signFunction.fetch(post({ spot: SPOT, sentences: SENTENCES, digest: REVIEWED }))
     expect([res.status, await res.json()]).toEqual([503, { error: 'staff_auth_not_configured' }])
     vi.unstubAllEnvs()
   })

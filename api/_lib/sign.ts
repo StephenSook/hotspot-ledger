@@ -4,7 +4,7 @@
 // well-formed notice from the sentence bank, never text sent by a client.
 import { parseChoice, validateDraftRequest } from './draft'
 import { InputError, exactKeys, isPlainObject, json, methodNotAllowed, readEnv, readJsonBody } from './http'
-import { b64urlEncode, composeNotice, encodePayload, payloadFromNotice, wordingDigest, type SentenceId, type Spot } from './notice'
+import { DIGEST, b64urlEncode, composeNotice, encodePayload, payloadFromNotice, wordingDigest, type SentenceId, type Spot } from './notice'
 import { createGateLimiters, staffGate, type GateDeps } from './staff'
 
 export const SIGN_MAX_BODY_BYTES = 4 * 1024
@@ -19,7 +19,8 @@ export async function signPayload(payloadB64: string, pkcs8Base64: string): Prom
 
 const signLimiters = createGateLimiters()
 
-// Order: 405, staff auth configured (503), staff token (401/429), signing key (503), input (400).
+// Order: 405, staff auth configured (503), staff token (401/429), signing key (503), input (400),
+// reviewed wording no longer what the bank renders (409).
 export async function handleSign(request: Request, deps: GateDeps = {}): Promise<Response> {
   if (request.method !== 'POST') return methodNotAllowed()
   const denied = staffGate(request, deps.limiters ?? signLimiters, deps)
@@ -29,10 +30,14 @@ export async function handleSign(request: Request, deps: GateDeps = {}): Promise
 
   let spot: Spot
   let chosen: SentenceId[]
+  let reviewed: string
   try {
     const body = await readJsonBody(request, SIGN_MAX_BODY_BYTES)
     if (!isPlainObject(body)) throw new InputError('body must be a JSON object')
-    exactKeys(body, ['spot', 'sentences'], 'body')
+    exactKeys(body, ['spot', 'sentences', 'digest'], 'body')
+    // Digest of the English and Spanish text the staff member reviewed (wordingDigest).
+    if (typeof body.digest !== 'string' || !DIGEST.test(body.digest)) throw new InputError('digest: must be a wording digest')
+    reviewed = body.digest
     spot = validateDraftRequest({ spot: body.spot })
     try {
       chosen = parseChoice({ sentences: body.sentences })
@@ -47,6 +52,8 @@ export async function handleSign(request: Request, deps: GateDeps = {}): Promise
   const now = (deps.now ?? (() => new Date()))()
   const notice = composeNotice(spot, chosen)
   const digest = await wordingDigest(notice.en, notice.es)
+  // Sign only the words a person reviewed. If the sentence bank changed since the draft, refuse.
+  if (digest !== reviewed) return json(409, { error: 'wording_changed' })
   const payloadB64 = encodePayload(payloadFromNotice(spot, notice.sentences, now.toISOString().slice(0, 10), digest))
   let signature: string
   try {

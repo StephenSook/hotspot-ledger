@@ -5,6 +5,7 @@ import { Frame } from '../components/hud'
 import type { Cell, LngLat, LedgerData } from '../data/types'
 import { draftNotice, explain, getStaffToken, orderStops, setStaffToken, signNotice, type DraftResult, type SignResult } from '../lib/api'
 import { int } from '../lib/format'
+import { wordingDigest } from '../lib/notice'
 import { STAR, TREATMENT_LABEL, earliestAmnesty, isoWeek, propose, starReimbursable, weeklyPlan, type Proposal } from '../lib/plan'
 import { useStored } from '../lib/store'
 import { csv } from '../lib/csv'
@@ -46,11 +47,13 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
   const tireSpots = proposals.filter((p) => p.treatment === 'tire_play')
   const routePath: LngLat[] | undefined = route?.order.map((id) => { const c = byId.get(id)!; return [c.lng, c.lat] })
 
-  // Any decision change voids that spot's draft and signature, and answers still in flight for it.
+  // A decision change or a new draft starts a new generation for that spot: its draft and signature
+  // are cleared, and any answer still in flight from an older generation is ignored.
   const epoch = useRef<Record<string, number>>({})
+  const bump = (id: string) => (epoch.current[id] = (epoch.current[id] ?? 0) + 1)
   const drop = <T,>(m: Record<string, T>, id: string) => { const { [id]: _gone, ...rest } = m; return rest }
   const decide = (id: string, status: Decision['status']) => {
-    epoch.current[id] = (epoch.current[id] ?? 0) + 1
+    bump(id)
     setDrafts((m) => drop(m, id))
     setSigned((m) => drop(m, id))
     setDecisions((d) => ({ ...d, [id]: { status, owner: owners[id] ?? '', at: new Date().toISOString() } }))
@@ -73,7 +76,7 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
   }
 
   async function draft(p: Proposal) {
-    const e = epoch.current[p.cellId]
+    const e = bump(p.cellId)
     setDrafts((d) => ({ ...d, [p.cellId]: 'Drafting' }))
     setSigned((m) => drop(m, p.cellId))
     const r = await draftNotice(spotOf(p))
@@ -84,7 +87,8 @@ export default function Plan({ data, pinned }: { data: LedgerData; pinned: strin
   async function sign(p: Proposal, d: DraftResult) {
     const e = epoch.current[p.cellId]
     setSigned((s) => ({ ...s, [p.cellId]: 'Signing' }))
-    const r = await signNotice(spotOf(p), d.sentences)
+    // The server signs only if these are still the words it renders, so staff sign what they read.
+    const r = await signNotice(spotOf(p), d.sentences, await wordingDigest(d.en, d.es))
     if (epoch.current[p.cellId] !== e) return
     setSigned((s) => ({ ...s, [p.cellId]: r.ok ? r.data : explain(r.error, r.status) }))
   }

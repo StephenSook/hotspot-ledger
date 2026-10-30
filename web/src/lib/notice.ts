@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { verifyNoticeToken, type VerifyResult } from '../../../api/_lib/notice'
 
-export { NOTICE_PUBLIC_KEY } from '../../../api/_lib/notice'
+export { NOTICE_PUBLIC_KEY, wordingDigest } from '../../../api/_lib/notice'
 
 /** Where a resident reports dumping: the city's own Code Enforcement page (Submit a Complaint). */
 export const REPORT_URL = 'https://www.mableton.gov/1201/Code-Enforcement-Department'

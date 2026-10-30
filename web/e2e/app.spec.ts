@@ -111,3 +111,33 @@ test('plan: rejecting a proposal withdraws its draft and its sign button', async
   await expect(sign).toHaveCount(0)
   await expect(page.getByText('Draft EN')).toHaveCount(0)
 })
+
+test('plan: a new draft during a pending signature drops the old signature', async ({ page }) => {
+  // Stubbed API: the second draft answers at once while the first signature is still in flight.
+  let drafts = 0
+  await page.route('**/api/draft', (r) => {
+    drafts += 1
+    const t = drafts === 1 ? 'Draft A' : 'Draft B'
+    return r.fulfill({ json: { en: t, es: t, sentences: ['where', 'action', 'how_to_report'], model: 'stub', drafted_at: '2026-10-30T00:00:00Z', status: 'draft' } })
+  })
+  await page.route('**/api/sign', async (r) => {
+    await new Promise((done) => setTimeout(done, 2500))
+    await r.fulfill({ json: { token: SAMPLE, path: `/#/v/${SAMPLE}`, en: 'Draft A', es: 'Draft A', sentences: ['where'], signed_at: '2026-10-30T00:00:00Z' } })
+  })
+  await page.goto('/#/plan')
+  await expect(page.getByText(/0 approved \/ \d+/)).toBeVisible({ timeout: 45_000 })
+  await page.getByLabel(/who owns the ground/i).first().selectOption('city')
+  await page.getByRole('button', { name: 'Approve', exact: true }).first().click()
+  await page.getByRole('button', { name: /Draft notice/ }).first().click()
+  await expect(page.getByText('Draft A').first()).toBeVisible()
+  const signAnswered = page.waitForResponse('**/api/sign')
+  await page.getByRole('button', { name: 'Approve text and sign' }).click()
+  await page.getByRole('button', { name: /Draft notice/ }).first().click()
+  await expect(page.getByText('Draft B').first()).toBeVisible()
+  // Check only after the old signature's answer has landed and had time to render. The counts are read
+  // once (no retry), because a retrying "count is 0" passes on its first look, before a late answer renders.
+  await signAnswered
+  await page.waitForTimeout(2000)
+  expect(await page.getByRole('link', { name: 'Print signed notice' }).count()).toBe(0)
+  expect(await page.getByRole('button', { name: 'Approve text and sign' }).count()).toBe(1)
+})
