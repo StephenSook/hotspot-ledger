@@ -124,6 +124,7 @@ export function buildDraftPrompt(spot: Spot): { system: string; user: string } {
     '- Calm and friendly. Thank neighbors for helping keep the area clean. Do not blame anyone, do not guess who did it, and do not threaten.',
     '- Do not include names of people or businesses, street addresses, house numbers, phone numbers, email addresses or web links. To say where, use only the Plus Code and, if one is given, the council district.',
     '- Write the Plus Code exactly as given. Do not write dates, years, or any other number with three or more digits. Do not mention license plates.',
+    '- Use no numbers except the ones in the facts. Capitalize only the first word of each sentence and the names Mableton, Georgia, Plus Code and QR.',
     '- Say in plain words what the city is doing at the spot.',
     '- Tell people how to report dumping: scan the QR code on the city sign at the spot, or report it on the City of Mableton website.',
     ...tipRules,
@@ -159,91 +160,129 @@ const MAX_NOTICE_CHARS = 2000
 // A run of 3+ digits outside a code-like token: house numbers, phone numbers, years, report ids.
 const DIGIT_RUN = /(^|[^A-Z0-9+])\d{3,}(?![A-Z0-9])/
 const PLATE_WORDS = /\b(plates?|placas?|matr[ií]culas?|tablillas?|tag\s+numbers?)\b/i
+// Any Plus Code other than the spot's own would place the notice somewhere else.
+const ANY_PLUS_CODE = /[23456789CFGHJMPQRVWX]{4,8}\+/i
+// Soft hyphens, zero-width characters and word joiners can split a number or a name invisibly.
+const INVISIBLE = /[­​-‏⁠-⁤﻿]/g
 
-// Street addresses, found by shape rather than by capitalization, on lowercased word tokens.
-// English: a house number, then 1 to 4 name words in the same clause, then a street suffix
-// ("12 Main St", "12 main way", "4 Old Powder Springs Road", "12 N. Main St"). A word that cannot
-// be part of a street name (a function word or a count noun) breaks the match, so "reported 12
-// times on this street" passes. Spanish: a street word followed by a name or a number ("calle
-// Mayor", "calle mayor", "calle 5", "Calle de Alcala"), while "la calle es" or "la calle limpia"
-// passes. The notice is a draft a person approves; this check is the second line, not the first.
+/** NFKC turns fullwidth digits and no-break spaces into plain ones; invisible characters are removed. */
+export function normalizeNotice(text: string): string {
+  return text.normalize('NFKC').replace(INVISIBLE, '')
+}
+
+/*
+ * The output check is built on what the model is given. Its facts hold no names and only a few
+ * numbers, so a notice may contain only those numbers and only a short list of names. Three checks:
+ *
+ * 1. Numbers: every number must be one of the facts (report count, 12-month count, item counts,
+ *    district) or 12, for "the last 12 months". An invented house number fails.
+ * 2. Names: a capitalized word that does not start a sentence must be on ALLOWED_NAMES. Invented
+ *    names ("Main Street", "La Paz", "The Avenue", "Jane Doe") fail, in any capitalization pattern
+ *    that uses capitals, including all caps.
+ * 3. Street shape, for the case where a house number happens to equal a fact: an English house
+ *    number, 1 to 4 name words in the same clause, then a street suffix ("12 main way"), and a
+ *    Spanish street word followed by a number ("calle 5").
+ *
+ * Known residual, accepted: an all-lowercase invented street name with no number ("la calle mayor")
+ * passes. The model is told not to write places, its facts contain none, and a person approves the
+ * draft before anything is posted. Guessing names from lowercase Spanish rejected ordinary
+ * sentences ("mantener la calle libre de basura"), which is worse than the residual.
+ */
+const ALLOWED_NAMES = new Set(['Mableton', 'Georgia', 'GA', 'Plus', 'Code', 'QR', 'City', 'Ciudad', 'Cobb', 'County', 'Condado', 'I'])
 const SUFFIXES = new Set([
   'st', 'street', 'rd', 'road', 'ave', 'avenue', 'blvd', 'boulevard', 'dr', 'drive', 'ln', 'lane', 'way',
   'ct', 'court', 'pkwy', 'parkway', 'hwy', 'highway', 'cir', 'circle', 'pl', 'place', 'trl', 'trail', 'ter', 'terrace',
 ])
-const EN_NOT_NAME = new Set(
+// Words that cannot be part of a street name: they end a house-number candidate, so "reported 12
+// times on this street" and "12 veces en esta calle" pass.
+const NOT_NAME = new Set(
   ('a an the this that these those of on in at by near for to from and or with without along our your their ' +
     'his her its my we you they it is are was were be been has have had more than over about around up down ' +
     'out off into onto since per every each other another times time reports report reported piles pile bags ' +
     'bag tires tire items item pieces piece loads load trucks truck people neighbors neighbor residents ' +
     'families households days day weeks week months month years year calls call signs sign crews crew cameras ' +
     'camera spots spot places cleanups cleanup visits mattresses couches chairs appliances blocks minutes hours ' +
-    'feet meters miles percent so then also please').split(' '),
+    'feet meters miles percent so then also please ' +
+    'veces vez reportes reporte bolsas bolsa llantas llanta muebles meses mes años año semanas días en el la ' +
+    'los las de del y o al con por para que se este esta estos estas').split(' '),
 )
 // Abbreviations that can sit inside a street name without ending the sentence ("12 N. Main St").
 const ABBREVIATIONS = new Set(['n.', 's.', 'e.', 'w.', 'ne.', 'nw.', 'se.', 'sw.', 'mt.', 'ft.', 'st.'])
 const ES_STREET = new Set(['calle', 'avenida', 'carretera', 'camino', 'paseo', 'bulevar'])
-const ES_NOT_NAME = new Set(
-  ('es está están son fue era y o u e a al de del la el lo los las en con sin por para que se no ni más muy ' +
-    'cerca donde esta este estos estas ese esa su sus nuestra nuestro nuestras nuestros limpia limpio limpias ' +
-    'limpios sucia sucio también hoy ahora cada todos todas otra otro junto frente si sí como cuando pero ' +
-    'porque hay tiene tienen puede pueden ya mismo misma').split(' '),
-)
 const TOKEN = /[\p{L}\p{N}][\p{L}\p{N}'’-]*\.?|[!?;:,()\n]/gu
-const HOUSE_NUMBER = /^\d{1,5}(?:[a-z]|-\d{1,5})?$/
+const HOUSE_NUMBER = /^\d{1,5}(?:-?[a-z]|-\d{1,5})?$/
 const isBreak = (t: string) => /^[!?;:,()\n]$/.test(t)
 const bare = (t: string) => t.replace(/\.$/, '')
 
 export function looksLikeAddress(text: string): boolean {
-  const raw = text.match(TOKEN) ?? []
-  const ts = raw.map((t) => t.toLowerCase())
+  const ts = (normalizeNotice(text).match(TOKEN) ?? []).map((t) => t.toLowerCase())
   for (let i = 0; i < ts.length; i++) {
-    if (HOUSE_NUMBER.test(bare(ts[i])) && !ts[i].endsWith('.')) {
-      let names = 0
-      for (let j = i + 1; j < ts.length && names <= 4; j++) {
-        const t = ts[j]
-        const w = bare(t)
-        if (isBreak(t)) break
-        // A suffix word right after the number is part of the name ("12 St. Johns Rd", "4 Court St").
-        if (SUFFIXES.has(w) && names >= 1) return true
-        if (EN_NOT_NAME.has(w) || /^\d/.test(w)) break
-        names++
-        if (t.endsWith('.') && !ABBREVIATIONS.has(t)) break // the sentence ends on this word
-      }
-    }
-    if (ES_STREET.has(ts[i])) {
-      const next = ts[i + 1]
-      if (next === undefined || isBreak(next)) continue
-      if (/^\d/.test(next)) return true
-      if ((next === 'de' || next === 'del') && raw[i + 2] && /^[\p{Lu}\p{N}]/u.test(raw[i + 2])) return true
-      if (!ES_NOT_NAME.has(bare(next))) return true
+    if (ES_STREET.has(ts[i]) && ts[i + 1] !== undefined && /^\d/.test(ts[i + 1])) return true
+    if (!HOUSE_NUMBER.test(bare(ts[i])) || ts[i].endsWith('.')) continue
+    let names = 0
+    for (let j = i + 1; j < ts.length && names <= 4; j++) {
+      const t = ts[j]
+      const w = bare(t)
+      if (isBreak(t)) break
+      // A suffix word right after the number is part of the name ("12 St. Johns Rd", "4 Court St").
+      if (SUFFIXES.has(w) && names >= 1) return true
+      if (NOT_NAME.has(w) || /^\d/.test(w)) break
+      names++
+      if (t.endsWith('.') && !ABBREVIATIONS.has(t)) break // the sentence ends on this word
     }
   }
   return false
 }
-// Any Plus Code other than the spot's own would place the notice somewhere else.
-const ANY_PLUS_CODE = /[23456789CFGHJMPQRVWX]{4,8}\+/i
 
-/** Why a notice must not be returned, or null when it passes. */
-export function unsafeNoticeReason(text: string, plusCode: string): string | null {
-  const withoutCode = text.split(plusCode).join(' ')
-  if (DIGIT_RUN.test(withoutCode)) return 'number with three or more digits'
-  if (ANY_PLUS_CODE.test(withoutCode)) return 'different Plus Code'
-  if (PLATE_WORDS.test(text)) return 'license plate wording'
-  if (looksLikeAddress(text)) return 'street address'
+/** The numbers a notice may contain: the facts the model was given, plus 12 for "12 months". */
+export function allowedNumbers(spot: Spot): Set<number> {
+  const out = new Set<number>([spot.n, spot.recent, 12, ...Object.values(spot.items)])
+  if (spot.district) out.add(Number(spot.district))
+  return out
+}
+
+/** A capitalized word that does not start a sentence and is not an allowed name, or null. */
+export function unexpectedName(text: string): string | null {
+  const words = normalizeNotice(text).match(/[\p{L}][\p{L}'’]*|[.!?\n:]/gu) ?? []
+  let sentenceStart = true
+  for (const w of words) {
+    if (/^[.!?\n:]$/.test(w)) {
+      sentenceStart = true
+      continue
+    }
+    const base = w.replace(/['’]s$/, '')
+    if (!sentenceStart && /^\p{Lu}/u.test(base) && !ALLOWED_NAMES.has(base)) return base
+    sentenceStart = false
+  }
   return null
 }
 
-export function parseDraft(value: unknown, plusCode: string): { en: string; es: string } {
+/** Why a notice must not be returned, or null when it passes. */
+export function unsafeNoticeReason(text: string, spot: Spot): string | null {
+  const clean = normalizeNotice(text)
+  const withoutCode = clean.split(spot.plus_code).join(' ')
+  if (DIGIT_RUN.test(withoutCode)) return 'number with three or more digits'
+  if (ANY_PLUS_CODE.test(withoutCode)) return 'different Plus Code'
+  if (PLATE_WORDS.test(clean)) return 'license plate wording'
+  if (looksLikeAddress(withoutCode)) return 'street address'
+  const allowed = allowedNumbers(spot)
+  for (const m of withoutCode.match(/\d+/g) ?? []) {
+    if (!allowed.has(Number(m))) return 'number that is not one of the facts'
+  }
+  if (unexpectedName(withoutCode)) return 'name that is not in the facts'
+  return null
+}
+
+export function parseDraft(value: unknown, spot: Spot): { en: string; es: string } {
   if (!isPlainObject(value)) throw new Error('draft is not an object')
   const out = { en: '', es: '' }
   for (const lang of ['en', 'es'] as const) {
     const text = value[lang]
     if (typeof text !== 'string' || !text.trim()) throw new Error(`draft.${lang} is missing`)
     if (text.length > MAX_NOTICE_CHARS) throw new Error(`draft.${lang} is too long`)
-    const reason = unsafeNoticeReason(text, plusCode)
+    const reason = unsafeNoticeReason(text, spot)
     if (reason) throw new Error(`draft.${lang} contains a ${reason}`)
-    out[lang] = text.trim()
+    out[lang] = normalizeNotice(text).trim()
   }
   return out
 }
@@ -287,7 +326,7 @@ export async function handleDraft(request: Request, deps: Deps = {}): Promise<Re
 
   let draft: { en: string; es: string }
   try {
-    draft = parseDraft(outcome.value, spot.plus_code)
+    draft = parseDraft(outcome.value, spot)
   } catch {
     // No detail in the response or the logs: the rejected text is model output we will not show.
     return json(502, { error: 'gemini_bad_output' })

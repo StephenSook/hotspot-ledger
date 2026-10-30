@@ -4,6 +4,7 @@ import {
   DRAFT_MAX_BODY_BYTES,
   DRAFT_MODEL,
   TREATMENTS,
+  allowedNumbers,
   buildDraftPrompt,
   handleDraft,
   parseDraft,
@@ -167,12 +168,27 @@ describe('buildDraftPrompt', () => {
 })
 
 describe('notice output check', () => {
-  it('accepts a plain notice that contains the Plus Code and small numbers', () => {
-    expect(parseDraft(GOOD_NOTICE, SPOT.plus_code)).toEqual(GOOD_NOTICE)
-    expect(unsafeNoticeReason('Reported 57 times in district 5.', SPOT.plus_code)).toBeNull()
-    // Report counts near street words, ordinary words that are also suffixes, and "the street"
-    // inside Spanish sentences must all pass.
+  // Full notices of the length and shape the prompt asks for, using only the SPOT facts.
+  const FULL_EN =
+    'Thank you, neighbors. Dumping has been reported 57 times at Plus Code 865QRCC9+23 in council district 5, ' +
+    'including 9 times in the last 12 months. Reports mention 11 tires and 14 bags. The City of Mableton is ' +
+    "promoting tire amnesty so old tires have a proper place to go. To report dumping, scan the QR code on the city " +
+    "sign at this spot or visit the City of Mableton's website. Thank you for helping keep this area clean."
+  const FULL_ES =
+    'Gracias, vecinos. Se reportó basura 57 veces en el Plus Code 865QRCC9+23, distrito 5, y 9 veces en los ' +
+    'últimos 12 meses. Los reportes incluyen 14 bolsas y 11 llantas. La Ciudad de Mableton va a promover la ' +
+    'amnistía de llantas. Por favor, ayude a mantener la calle libre de basura. Para reportar basura nueva, ' +
+    'escanee el código QR del letrero o visite el sitio web de la Ciudad de Mableton. Gracias por cuidar este ' +
+    'espacio para todos.'
+
+  it('accepts full bilingual notices that use only the facts', () => {
+    expect(parseDraft(GOOD_NOTICE, SPOT)).toEqual(GOOD_NOTICE)
+    expect(parseDraft({ en: FULL_EN, es: FULL_ES }, SPOT)).toEqual({ en: FULL_EN, es: FULL_ES })
+  })
+
+  it('accepts report counts near street words and "the street" in ordinary Spanish', () => {
     for (const ok of [
+      'Reported 57 times in district 5.',
       'Reported 12 times at this place, by the way.',
       'Neighbors reported dumping 12 times on this street.',
       'There were 9 reports in the last 12 months on this road.',
@@ -180,25 +196,31 @@ describe('notice output check', () => {
       'In district 5 drive slowly and report what you see.',
       'Tirar basura en la calle es ilegal.',
       'Mantengamos la calle limpia.',
+      'Gracias por mantener la calle segura.',
+      'Por favor, ayude a mantener la calle libre de basura.',
       'Se reportó 12 veces en esta calle.',
       'Hay 9 reportes en la calle y en el camino.',
       'Gracias por mantener limpia la calle de la ciudad.',
-      GOOD_NOTICE.en,
-      GOOD_NOTICE.es,
     ]) {
-      expect(unsafeNoticeReason(ok, SPOT.plus_code), ok).toBeNull()
+      expect(unsafeNoticeReason(ok, SPOT), ok).toBeNull()
     }
+  })
+
+  it('only allows the numbers in the facts, plus 12 for the 12-month window', () => {
+    expect([...allowedNumbers(SPOT)].sort((a, b) => a - b)).toEqual([1, 3, 5, 9, 11, 12, 14, 57])
+    expect(unsafeNoticeReason('Reports mention 4 tires.', SPOT)).toContain('not one of the facts')
+    expect(unsafeNoticeReason('Los reportes incluyen 9 bolsas y 4 llantas.', SPOT)).toContain('not one of the facts')
   })
 
   const unsafe: [string, string, string][] = [
     ['an accusation with a name and address', 'Jane Doe at 123 Main St dumped these', 'three or more digits'],
+    ['a name with no number', 'We thank Jane Doe for reporting.', 'name that is not in the facts'],
     ['a year', 'The last report was in October 2026.', 'three or more digits'],
     ['a date', 'Last report: 2026-10-25.', 'three or more digits'],
     ['a phone number', 'Call 770-555-0123 to report.', 'three or more digits'],
     ['a different Plus Code', 'Also check 865QRC99+H4 nearby.', 'different Plus Code'],
     ['a two-digit street address', 'Bags were left near 12 Main Street.', 'street address'],
     ['a multi-word street name', 'Near 4 Old Powder Springs Road.', 'street address'],
-    ['a Spanish street', 'Cerca de la Calle Mayor.', 'street address'],
     ['a lowercase street address', 'Bags were left near 12 main street.', 'street address'],
     ['an all-caps street address', 'NEAR 12 MAIN STREET.', 'street address'],
     ['an all-caps abbreviated address', 'Left at 12 OLD FLOYD RD.', 'street address'],
@@ -207,27 +229,48 @@ describe('notice output check', () => {
     ['a Place address', 'Near 9 Elm Place.', 'street address'],
     ['a directional abbreviation', 'Near 12 N. Main St.', 'street address'],
     ['a number range', 'Near 12-14 Main St.', 'street address'],
+    ['a lettered house number', 'Near 12-B Main St.', 'street address'],
     ['a Saint street', 'Near 12 St. Johns Rd.', 'street address'],
     ['a suffix word as the name', 'Left at 4 Court Street', 'street address'],
-    ['a lowercase Spanish street word', 'Cerca de la calle Mayor.', 'street address'],
-    ['an all-lowercase Spanish street', 'Cerca de la calle mayor.', 'street address'],
-    ['an all-caps Spanish street', 'CERCA DE LA CALLE MAYOR.', 'street address'],
+    ['an article inside an English address', 'Bags sit at 12 The Avenue.', 'name that is not in the facts'],
+    ['an invented house number before a name', 'Bags sit at 4 Elm.', 'not one of the facts'],
+    ['a Spanish street', 'Cerca de la Calle Mayor.', 'name that is not in the facts'],
+    ['a lowercase Spanish street word', 'Cerca de la calle Mayor.', 'name that is not in the facts'],
+    ['an all-caps Spanish street', 'CERCA DE LA CALLE MAYOR.', 'name that is not in the facts'],
+    ['a Spanish street name with an article', 'Cerca de la calle La Paz 12.', 'name that is not in the facts'],
+    ['an all-caps Spanish name with an article', 'Cerca de la CALLE LA PAZ 12.', 'name that is not in the facts'],
     ['a numbered Spanish street', 'Dejaron bolsas en la calle 5.', 'street address'],
-    ['a Spanish street with de', 'Cerca de la Calle de Alcala.', 'street address'],
+    ['a Spanish street with de', 'Cerca de la Calle de Alcala.', 'name that is not in the facts'],
+    ['fullwidth digits', 'Near １２ Main St.', 'street address'],
+    ['a zero-width split number', 'Near 1​2 main st.', 'street address'],
+    ['a no-break space', 'Near 12 main st.', 'street address'],
+    ['a soft hyphen inside a name', 'Thanks to Ja­ne.', 'name that is not in the facts'],
     ['license plates', 'The camera will read license plates.', 'license plate'],
     ['placa in Spanish', 'La cámara no lee la placa del carro.', 'license plate'],
     ['a tag number', 'Write down the tag number.', 'license plate'],
   ]
   it.each(unsafe)('rejects %s', (_name, text, reason) => {
-    expect(unsafeNoticeReason(text, SPOT.plus_code)).toContain(reason)
-    expect(() => parseDraft({ en: GOOD_NOTICE.en, es: text }, SPOT.plus_code)).toThrow()
-    expect(() => parseDraft({ en: text, es: GOOD_NOTICE.es }, SPOT.plus_code)).toThrow()
+    expect(unsafeNoticeReason(text, SPOT)).toContain(reason)
+    expect(() => parseDraft({ en: GOOD_NOTICE.en, es: text }, SPOT)).toThrow()
+    expect(() => parseDraft({ en: text, es: GOOD_NOTICE.es }, SPOT)).toThrow()
+  })
+
+  it('documents the accepted residual: an all-lowercase street name with no number passes', () => {
+    // Catching this means guessing names in lowercase Spanish, which rejected ordinary sentences such
+    // as "mantener la calle libre de basura". The model's facts hold no places, the prompt forbids
+    // them, and a person approves every draft. If this test starts failing, the residual is closed.
+    expect(unsafeNoticeReason('Gracias. Dejaron bolsas cerca de la calle mayor.', SPOT)).toBeNull()
+  })
+
+  it('returns notices with invisible characters removed', () => {
+    const withZeroWidth = { en: GOOD_NOTICE.en.replace('neighbors', 'neigh​bors'), es: GOOD_NOTICE.es }
+    expect(parseDraft(withZeroWidth, SPOT).en).toBe(GOOD_NOTICE.en)
   })
 
   it.each([[null], [{ en: 'Hi' }], [{ en: 'Hi', es: '' }], [{ en: 'Hi', es: 7 }], [{ en: 'x'.repeat(2001), es: 'y' }]])(
     'rejects malformed output %j',
     (value) => {
-      expect(() => parseDraft(value, SPOT.plus_code)).toThrow()
+      expect(() => parseDraft(value, SPOT)).toThrow()
     },
   )
 })
@@ -318,10 +361,11 @@ describe('handleDraft', () => {
 
   it.each([
     [{ en: GOOD_NOTICE.en, es: 'Gracias. Dejaron bolsas cerca de la calle Mayor.' }],
-    [{ en: GOOD_NOTICE.en, es: 'Gracias. Dejaron bolsas cerca de la calle mayor.' }],
     [{ en: 'Bags were left near 12 main street.', es: GOOD_NOTICE.es }],
     [{ en: 'Bags sit at 12 main way.', es: GOOD_NOTICE.es }],
     [{ en: 'NEAR 12 MAIN STREET.', es: GOOD_NOTICE.es }],
+    [{ en: 'Bags sit at 12 The Avenue.', es: GOOD_NOTICE.es }],
+    [{ en: GOOD_NOTICE.en, es: 'Cerca de la calle La Paz 12.' }],
   ])('answers 502 gemini_bad_output when the model writes an address in any case: %j', async (answer) => {
     const fetchImpl = vi.fn(async () => geminiReply(answer))
     const res = await handleDraft(post({ spot: SPOT }), withKey(fetchImpl as unknown as typeof fetch))
@@ -331,7 +375,7 @@ describe('handleDraft', () => {
   it('returns 200 for a normal notice that mentions the report count and the street', async () => {
     const answer = {
       en: 'Thank you, neighbors. Dumping was reported 12 times on this street at Plus Code 865QRCC9+23.',
-      es: 'Gracias, vecinos. Se reportó basura 12 veces en esta calle, en el Plus Code 865QRCC9+23.',
+      es: 'Gracias, vecinos. Se reportó basura 12 veces en esta calle, en el Plus Code 865QRCC9+23. Por favor, ayude a mantener la calle libre de basura.',
     }
     const fetchImpl = vi.fn(async () => geminiReply(answer))
     const res = await handleDraft(post({ spot: SPOT }), withKey(fetchImpl as unknown as typeof fetch))

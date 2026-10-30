@@ -32,7 +32,7 @@ Errors: `400` bad input, `405` not POST, `500 {"error":"solver_failed"}`.
 Drafts a short neighbor notice in English and Spanish for one spot, from aggregate facts only.
 
 ```json
-{"spot": {"plus_code": "865QRCC9+23", "district": "5", "items": {"tires": 11, "furniture": 9, "appliances": 3, "bags": 14, "construction": 1}, "n": 57, "last": "2026-10-25", "treatment": "sign_qr", "owner_label": "confirm"}}
+{"spot": {"plus_code": "865QRCC9+23", "district": "5", "items": {"tires": 11, "furniture": 9, "appliances": 3, "bags": 14, "construction": 1}, "n": 57, "recent": 9, "treatment": "sign_qr", "owner_label": "confirm"}}
 ```
 
 Answer: `{"en": "...", "es": "...", "model": "gemini-3.8-flash", "drafted_at": "2026-10-30T14:00:00.000Z", "status": "draft"}`
@@ -42,18 +42,27 @@ Answer: `{"en": "...", "es": "...", "model": "gemini-3.8-flash", "drafted_at": "
   (`^[23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2,3}$`); `district` `null` or `"1"` to `"6"`;
   `treatment` one of the planner codes `close_access`, `sign_qr`, `bulk_outreach`, `tire_play`,
   `commercial_check`, `cleanup`, `camera`; `owner_label` one of `city`, `cobb`, `gdot`, `private`,
-  `confirm`; item counts and `n` integers 0 to 10000; `last` a real `YYYY-MM` or `YYYY-MM-DD`;
-  body at most 4 KB.
+  `confirm`; item counts, `n` and `recent` (reports in the last 12 months, never a date) integers
+  0 to 10000, with `recent` no larger than `n`; body at most 4 KB.
 - Prompt-injection defence: no free text reaches the prompt. Every value is a number, a fixed code,
   or a strictly patterned string. Each treatment code becomes a fixed sentence written in this repo.
-  `owner_label` is validated but not sent. `last` is sent as words ("within the last three months"),
-  not as a date, and counts of 100 or more as "over one hundred".
-- Output check before any `200`: each language is at most 2000 characters, and the answer is refused
-  with `502 {"error":"gemini_bad_output"}` if, after removing the spot's own Plus Code, it contains
-  a run of 3 or more digits (`(^|[^A-Z0-9+])\d{3,}(?![A-Z0-9])`, which catches years, dates, phone
-  and house numbers), any other Plus Code, license plate wording (plate, placa, matrícula, tablilla,
-  tag number), or a street address (a number, capitalized words and a street suffix, or Calle /
-  Avenida / Carretera / Camino followed by a name). The refused text is never returned or logged.
+  `owner_label` is validated but not sent. No date reaches the model; counts of 100 or more are sent
+  as "over one hundred".
+- Output check before any `200`, built on what the model is given (its facts hold no names and only
+  a few numbers). Text is NFKC-normalized and stripped of zero-width characters first, so fullwidth
+  digits and no-break spaces cannot hide anything. Each language is at most 2000 characters, and the
+  answer is refused with `502 {"error":"gemini_bad_output"}` if, after removing the spot's own Plus
+  Code, it contains: a run of 3 or more digits (years, dates, phone numbers); any other Plus Code;
+  license plate wording (plate, placa, matrícula, tablilla, tag number); a street-address shape (an
+  English house number, 1 to 4 name words in the same clause and a street suffix, or Calle / Avenida
+  / Carretera / Camino followed by a number); any number that is not one of the facts (report count,
+  12-month count, item counts, district) or 12; or a capitalized word that does not start a sentence
+  and is not Mableton, Georgia, City, Ciudad, Cobb, County, Plus, Code or QR. The refused text is
+  never returned or logged.
+- Accepted residual: an all-lowercase invented street name with no number ("la calle mayor") passes.
+  Guessing names in lowercase Spanish rejected ordinary sentences ("mantener la calle libre de
+  basura"). The facts hold no places, the prompt forbids them, and a person approves every draft. A
+  test documents the residual so closing it is visible.
 - The bulk-pickup tip is added when furniture plus appliances is the largest item group; the tire
   amnesty tip when tires are. Ties add both.
 
@@ -134,9 +143,9 @@ start the real request handler on a local port. The TypeScript tests mock `fetch
 Gemini, and cover validation, injected input, unsafe model output, every error status, the staff gate,
 both rate-limit budgets and the shared-address lockout case.
 
-Type check (no `tsconfig.json` in `api/`, on purpose):
+Type check (CI runs this; the config lives at the repo root as `tsconfig.api.json`, not
+`api/tsconfig.json`, so Vercel's function builder never reads it):
 
 ```sh
-cd api && pnpm --package=typescript@5.9.3 dlx tsc --noEmit --strict --target ES2022 --lib ES2022,DOM \
-  --module nodenext --moduleResolution nodenext --skipLibCheck draft.ts classify.ts _lib/node-crypto.d.ts
+pnpm --package=typescript@7.0.2 dlx tsc -p tsconfig.api.json
 ```
