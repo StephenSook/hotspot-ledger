@@ -53,7 +53,7 @@ export default function VerifyNotice({ token }: { token: string }) {
               Report dumping / Reportar basura tirada
             </a>
             <p className="lbl" style={{ textAlign: 'center' }}>
-              Or call Code Enforcement / O llame a Cumplimiento de Códigos: <a href={`tel:${REPORT_PHONE.tel}`}>{REPORT_PHONE.label}</a>
+              Or call Code Enforcement / O llame a Cumplimiento de Códigos: <a href={`tel:${REPORT_PHONE.tel}`} style={{ whiteSpace: 'nowrap' }}>{REPORT_PHONE.label}</a>
             </p>
             <Frame className="stack" label="Notice">
               <p style={{ fontSize: 16 }}>{state.notice.en}</p>
