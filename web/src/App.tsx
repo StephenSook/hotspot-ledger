@@ -3,14 +3,16 @@ import { BottomBar } from './components/hud'
 import { ROUTES, noticeFromHash, type Route } from './lib/routes'
 import { loadLedger } from './data/load'
 import type { LedgerData } from './data/types'
-import Ledger from './pages/Ledger'
-import WhereNext from './pages/WhereNext'
-import Plan from './pages/Plan'
-import Evidence from './pages/Evidence'
 import VerifyNotice from './pages/VerifyNotice'
 import PrintNotice from './pages/PrintNotice'
 import { useStored } from './lib/store'
 
+// Pages load on demand, so a resident who scans a notice's QR code downloads only the check page,
+// not the 3D map engine or the on-device camera models.
+const Ledger = lazy(() => import('./pages/Ledger'))
+const WhereNext = lazy(() => import('./pages/WhereNext'))
+const Plan = lazy(() => import('./pages/Plan'))
+const Evidence = lazy(() => import('./pages/Evidence'))
 const CameraLab = lazy(() => import('./camera/CameraLab'))
 
 function routeFromHash(): Route {
@@ -69,15 +71,13 @@ export default function App() {
         {!error && !data && (
           <div className="page-scroll" aria-live="polite"><span className="lbl">Loading the ledger</span></div>
         )}
-        {data && route === 'ledger' && <Ledger data={data} onAddToPlan={addToPlan} pinned={pinned} />}
-        {data && route === 'next' && <WhereNext data={data} />}
-        {data && route === 'plan' && <Plan data={data} pinned={pinned} />}
-        {route === 'camera' && (
-          <Suspense fallback={<div className="page-scroll"><span className="lbl">Loading the camera lab</span></div>}>
-            <div className="page-scroll"><CameraLab /></div>
-          </Suspense>
-        )}
-        {data && route === 'evidence' && <Evidence data={data} />}
+        <Suspense fallback={<div className="page-scroll" aria-live="polite"><span className="lbl">Loading</span></div>}>
+          {data && route === 'ledger' && <Ledger data={data} onAddToPlan={addToPlan} pinned={pinned} />}
+          {data && route === 'next' && <WhereNext data={data} />}
+          {data && route === 'plan' && <Plan data={data} pinned={pinned} />}
+          {route === 'camera' && <div className="page-scroll"><CameraLab /></div>}
+          {data && route === 'evidence' && <Evidence data={data} />}
+        </Suspense>
       </main>
       <BottomBar route={route} />
       <div className="grain" aria-hidden="true" />

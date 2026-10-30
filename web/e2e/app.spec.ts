@@ -28,7 +28,8 @@ for (const p of PAGES) {
 test('ledger numbers come from the pipeline, not from the page', async ({ page, request }) => {
   const metrics = await (await request.get('/data/metrics.json')).json()
   await page.goto('/#/ledger')
-  await expect(page.getByText(metrics.dumping_reports.toLocaleString('en-US'), { exact: true })).toBeVisible()
+  // The map page loads on demand after the data, so allow the same first-paint budget as the page tests.
+  await expect(page.getByText(metrics.dumping_reports.toLocaleString('en-US'), { exact: true })).toBeVisible({ timeout: 30_000 })
   await expect(page.getByRole('heading', { level: 1 })).toContainText(String(metrics.hotspots))
 })
 
@@ -129,11 +130,11 @@ test('plan: a new draft during a pending signature drops the old signature', asy
   await page.getByLabel(/who owns the ground/i).first().selectOption('city')
   await page.getByRole('button', { name: 'Approve', exact: true }).first().click()
   await page.getByRole('button', { name: /Draft notice/ }).first().click()
-  await expect(page.getByText('Draft A').first()).toBeVisible()
+  await expect(page.getByText('Draft A').first()).toBeVisible({ timeout: 15_000 })
   const signAnswered = page.waitForResponse('**/api/sign')
   await page.getByRole('button', { name: 'Approve text and sign' }).click()
   await page.getByRole('button', { name: /Draft notice/ }).first().click()
-  await expect(page.getByText('Draft B').first()).toBeVisible()
+  await expect(page.getByText('Draft B').first()).toBeVisible({ timeout: 15_000 })
   // Check only after the old signature's answer has landed and had time to render. The counts are read
   // once (no retry), because a retrying "count is 0" passes on its first look, before a late answer renders.
   await signAnswered
